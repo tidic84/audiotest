@@ -3,10 +3,10 @@ import MicIcon from '@mui/icons-material/Mic';
 import StopIcon from '@mui/icons-material/Stop';
 import PauseIcon from '@mui/icons-material/Pause';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
-import AddIcon from '@mui/icons-material/Add';
+import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import SaveIcon from '@mui/icons-material/Save';
-import { Box, IconButton, Stack } from '@mui/material';
+import { Box, IconButton, Stack, Divider } from '@mui/material';
 import { useWavesurfer } from '@wavesurfer/react'
 import RegionsPlugin from 'wavesurfer.js/dist/plugins/regions.esm.js'
 import RecordPlugin from 'wavesurfer.js/dist/plugins/record.esm.js'
@@ -116,12 +116,12 @@ const AudioRecorder = ({ audioUrl, setAudioUrl }) => {
 
 
     return (
-        <Stack sx={{ display: '', alignItems: '', justifyContent: '', backgroundColor: "lightgray", borderRadius: 1, boxShadow: 1, width: '100%', height: '150px' }}>
+        <Stack sx={{ display: '', alignItems: '', justifyContent: '', backgroundColor: "rgb(224, 224, 224)", borderRadius: 1, boxShadow: 1, width: '100%', height: '150px' }}>
 
             {/* Barre du haut */}
-            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', backgroundColor: 'rgb(206, 204, 204)'}}>
                 {/*Timer*/}
-                <Box sx={{ fontSize: 16, fontWeight: 600, marginLeft: 2, minWidth: '60px', textAlign: 'center' }}> {formatTime(currentTime)} </Box>
+                <Box sx={{ fontSize: 16, fontWeight: 600, marginLeft: 2, minWidth: '60px', textAlign: 'center'}}> {formatTime(currentTime)} </Box>
                 {/*Play/Pause Button*/}
                 <IconButton onClick={onPlayPause}> {isPlaying ? <PauseIcon /> : <PlayArrowIcon />} </IconButton>
                 {/*Record Button*/}
@@ -131,9 +131,9 @@ const AudioRecorder = ({ audioUrl, setAudioUrl }) => {
                 {/*Delete Button*/}
                 <IconButton onClick={onDelete}> <DeleteIcon /> </IconButton>
                 {/*Add Region Button*/}
-                <IconButton onClick={addRegion}> <AddIcon /> </IconButton>
+                <IconButton onClick={() => addRegion(currentTime, currentTime + 2)}> <EditIcon /> </IconButton>
             </Box>
-
+            <Divider />
             {/* Progress Bar */}
             <Box sx={{ display: '', alignItems: '' }}>
                 <div ref={waveformRef} style={{ width: '100%', height: '70px', marginBottom: '' }} />
