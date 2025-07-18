@@ -19,6 +19,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl }) => {
     const [selectedDevice, setSelectedDevice] = useState('');
     const [recordingTime, setRecordingTime] = useState(0);
     const waveformRef = useRef(null);
+    const recordPluginRef = useRef(null);
     
     const regionsPlugin = useMemo(() => RegionsPlugin.create(), []);
     const plugins = useMemo(() => [regionsPlugin], [regionsPlugin]);
@@ -36,26 +37,44 @@ const AudioRecorder = ({ audioUrl, setAudioUrl }) => {
         barRadius: 2,
     });
 
-    // Enregistrer le plugin Record après la création de wavesurfer
-    const recordPlugin = wavesurfer?.registerPlugin(RecordPlugin.create({
-        renderRecordedAudio: false,
-        scrollingWaveform: false,
-        continuousWaveform: true,
-        continuousWaveformDuration: 30,
-    }));
+    // Initialiser le plugin Record
+    useEffect(() => {
+        if (!wavesurfer) return;
 
-    // Gestionnaires d'événements pour le plugin Record
-    recordPlugin?.on('record-end', (blob) => {
-        const recordedUrl = URL.createObjectURL(blob);
-        setAudioUrl(recordedUrl);
-        setIsRecording(false);
-        setIsPaused(false);
-        setRecordingTime(0);
-    });
+        // Créer et enregistrer le plugin Record
+        const recordPlugin = wavesurfer.registerPlugin(RecordPlugin.create({
+            renderRecordedAudio: false,
+            scrollingWaveform: false,
+            continuousWaveform: true,
+            continuousWaveformDuration: 30,
+        }));
 
-    recordPlugin?.on('record-progress', (time) => {
-        setRecordingTime(time);
-    });
+        recordPluginRef.current = recordPlugin;
+
+        // Gestionnaires d'événements pour le plugin Record
+        const handleRecordEnd = (blob) => {
+            const recordedUrl = URL.createObjectURL(blob);
+            setAudioUrl(recordedUrl);
+            setIsRecording(false);
+            setIsPaused(false);
+            setRecordingTime(0);
+        };
+
+        const handleRecordProgress = (time) => {
+            setRecordingTime(time);
+        };
+
+        recordPlugin.on('record-end', handleRecordEnd);
+        recordPlugin.on('record-progress', handleRecordProgress);
+
+        return () => {
+            // Cleanup lors du démontage
+            if (recordPlugin && typeof recordPlugin.destroy === 'function') {
+                recordPlugin.destroy();
+            }
+            recordPluginRef.current = null;
+        };
+    }, [wavesurfer, setAudioUrl]);
 
     // Charger les périphériques audio disponibles
     useEffect(() => {
@@ -76,6 +95,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl }) => {
 
     const startRecording = async () => {
         try {
+            const recordPlugin = recordPluginRef.current;
             if (!recordPlugin) return;
             
             const deviceId = selectedDevice || (availableDevices[0]?.deviceId);
@@ -88,12 +108,14 @@ const AudioRecorder = ({ audioUrl, setAudioUrl }) => {
     };
 
     const stopRecording = () => {
+        const recordPlugin = recordPluginRef.current;
         if (recordPlugin && (recordPlugin.isRecording() || recordPlugin.isPaused())) {
             recordPlugin.stopRecording();
         }
     };
 
     const pauseRecording = () => {
+        const recordPlugin = recordPluginRef.current;
         if (!recordPlugin) return;
         
         if (recordPlugin.isPaused()) {
