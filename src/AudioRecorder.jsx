@@ -21,15 +21,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl }) => {
     const waveformRef = useRef(null);
     
     const regionsPlugin = useMemo(() => RegionsPlugin.create(), []);
-    
-    const recordPlugin = useMemo(() => RecordPlugin.create({
-        renderRecordedAudio: false,
-        scrollingWaveform: false,
-        continuousWaveform: true,
-        continuousWaveformDuration: 30,
-    }), []);
-    
-    const plugins = useMemo(() => [regionsPlugin, recordPlugin], [regionsPlugin, recordPlugin]);
+    const plugins = useMemo(() => [regionsPlugin], [regionsPlugin]);
 
     // Configuration pour l'enregistrement et la lecture
     const { wavesurfer, currentTime, isPlaying } = useWavesurfer({
@@ -44,32 +36,26 @@ const AudioRecorder = ({ audioUrl, setAudioUrl }) => {
         barRadius: 2,
     });
 
-    // Initialiser les événements du plugin Record
-    useEffect(() => {
-        if (!recordPlugin) return;
+    // Enregistrer le plugin Record après la création de wavesurfer
+    const recordPlugin = wavesurfer?.registerPlugin(RecordPlugin.create({
+        renderRecordedAudio: false,
+        scrollingWaveform: false,
+        continuousWaveform: true,
+        continuousWaveformDuration: 30,
+    }));
 
-        // Gestionnaire pour la fin d'enregistrement
-        const handleRecordEnd = (blob) => {
-            const recordedUrl = URL.createObjectURL(blob);
-            setAudioUrl(recordedUrl);
-            setIsRecording(false);
-            setIsPaused(false);
-            setRecordingTime(0);
-        };
+    // Gestionnaires d'événements pour le plugin Record
+    recordPlugin?.on('record-end', (blob) => {
+        const recordedUrl = URL.createObjectURL(blob);
+        setAudioUrl(recordedUrl);
+        setIsRecording(false);
+        setIsPaused(false);
+        setRecordingTime(0);
+    });
 
-        // Gestionnaire pour le progrès d'enregistrement
-        const handleRecordProgress = (time) => {
-            setRecordingTime(time);
-        };
-
-        recordPlugin.on('record-end', handleRecordEnd);
-        recordPlugin.on('record-progress', handleRecordProgress);
-
-        return () => {
-            recordPlugin.off('record-end', handleRecordEnd);
-            recordPlugin.off('record-progress', handleRecordProgress);
-        };
-    }, [recordPlugin, setAudioUrl]);
+    recordPlugin?.on('record-progress', (time) => {
+        setRecordingTime(time);
+    });
 
     // Charger les périphériques audio disponibles
     useEffect(() => {
