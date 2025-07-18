@@ -6,13 +6,15 @@ import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import SaveIcon from '@mui/icons-material/Save';
-import { Box, IconButton, Stack, Divider } from '@mui/material';
+import Box from '@mui/material/Box';
+import Divider from '@mui/material/Divider';
+import IconButton from '@mui/material/IconButton';
+import Stack from '@mui/material/Stack'; 
 import { useWavesurfer } from '@wavesurfer/react'
 import RegionsPlugin from 'wavesurfer.js/dist/plugins/regions.esm.js'
 import RecordPlugin from 'wavesurfer.js/dist/plugins/record.esm.js'
 
-
-const AudioRecorder = ({ audioUrl, setAudioUrl }) => {
+const AudioRecorder = ({ audioUrl, setAudioUrl, audioPath, obs }) => {
     const mediaStream = useRef(null);
     const mediaRecorder = useRef(null);
     const [isRecording, setIsRecording] = useState(false);
@@ -21,6 +23,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl }) => {
     const regionsPlugin = useMemo(() => RegionsPlugin.create(), []);
     const recordPlugin = useMemo(() => RecordPlugin.create(), []);
     const plugins = useMemo(() => [regionsPlugin, recordPlugin], [regionsPlugin, recordPlugin]);
+    const [prise, setPrise] = useState("a");
 
     
     const startRecording = async () => {
@@ -113,10 +116,18 @@ const AudioRecorder = ({ audioUrl, setAudioUrl }) => {
             console.log(`${region.start} - ${region.end}`);
         });
     });
+    
+    useEffect(() => {
+        let chapterString = obs[0] < 10 ? `0${obs[0]}` : obs[0];
+        let paragraphString = obs[1] < 10 ? `0${obs[1]}` : obs[1];
+        const newAudioUrl = `${audioPath}/audio_content/${chapterString}-${paragraphString}/${chapterString}-${paragraphString}-${prise}.mp3`
+        
+        setAudioUrl(newAudioUrl)
+    }, [obs, prise])
 
 
     return (
-        <Stack sx={{ display: '', alignItems: '', justifyContent: '', backgroundColor: "rgb(224, 224, 224)", borderRadius: 1, boxShadow: 1, width: '100%', height: '150px' }}>
+        <Stack sx={{ mt: 5, backgroundColor: "rgb(224, 224, 224)", borderRadius: 1, boxShadow: 1, width: '100%', height: '150px' }}>
 
             {/* Barre du haut */}
             <Box sx={{ display: 'flex', alignItems: 'center', backgroundColor: 'rgb(206, 204, 204)'}}>
@@ -132,6 +143,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl }) => {
                 <IconButton onClick={onDelete}> <DeleteIcon /> </IconButton>
                 {/*Add Region Button*/}
                 <IconButton onClick={() => addRegion(currentTime, currentTime + 2)}> <EditIcon /> </IconButton>
+                {/* {obs[0]}, {obs[1]} */}
             </Box>
             <Divider />
             {/* Progress Bar */}
