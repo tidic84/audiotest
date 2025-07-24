@@ -1,0 +1,40 @@
+.markdown-content img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 10px;
+}
+
+.markdown-content p {
+    margin: 20px;
+}
+.markdown-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+.audio-waveform {
+    transition: opacity 0.2s ease;
+    overflow: hidden !important;
+    position: relative;
+    max-width: 100%;
+}
+
+.audio-waveform.loading {
+    opacity: 0;
+}
+
+.audio-waveform.loaded {
+    opacity: 1;
+}
+
+/* Styles pour s'assurer que wavesurfer reste dans ses limites */
+.audio-waveform > div {
+    overflow: hidden !important;
+    max-width: 100% !important;
+}
+
+.audio-waveform canvas {
+    max-width: 100% !important;
+}
