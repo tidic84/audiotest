@@ -2,6 +2,7 @@ import { useRef, useMemo, useEffect, useState } from 'react';
 import { useWavesurfer } from '@wavesurfer/react'
 import RegionsPlugin from 'wavesurfer.js/dist/plugins/regions.esm.js'
 import RecordPlugin from 'wavesurfer.js/dist/plugins/record.esm.js'
+import TimelinePlugin from 'wavesurfer.js/dist/plugins/timeline.esm.js'
 import Box from '@mui/material/Box';
 import IconButton from '@mui/material/IconButton';
 import PauseIcon from '@mui/icons-material/Pause';
@@ -26,7 +27,19 @@ const Waveform = ({
     const waveformContainerRef = useRef(null);
     const waveformRef = useRef(null);
     const regionsPlugin = useMemo(() => RegionsPlugin.create(), []);
-    const plugins = useMemo(() => [regionsPlugin,], [regionsPlugin]);
+    const timelinePlugin = useMemo(() => TimelinePlugin.create({
+        height: 100,
+        insertPosition: 'beforebegin',
+        timeInterval: 0.2,
+        primaryLabelInterval: 5,
+        secondaryLabelInterval: 1,
+        style: {
+          fontSize: '0px',
+          color: '#2D5B88',
+        },
+      })
+      , []);
+    const plugins = useMemo(() => [regionsPlugin, timelinePlugin], [regionsPlugin, timelinePlugin]);
     const [actualDuration, setActualDuration] = useState(0);
 
     const getUrl = (segment = "bytes", chapter = obs[0], paragraph = obs[1], prise = priseNumber) => {
@@ -81,18 +94,11 @@ const Waveform = ({
                 }
             };
 
-            const handleRegionUpdate = (region) => {
-                if (onRegionSelect) {
-                    onRegionSelect([region, priseNumber, regionsPlugin]);
-                }
-            };
-
             const handleRegionClick = (region) => {
                     onRegionSelect([region, priseNumber, regionsPlugin]);
             };
 
             regionsPlugin?.on('region-created', handleRegionCreate);
-            regionsPlugin?.on('region-updated', handleRegionUpdate);
             regionsPlugin?.on('region-clicked', handleRegionClick);
             // return () => {
                 // regionsPlugin?.off('region-created', handleRegionCreate);
@@ -114,7 +120,7 @@ const Waveform = ({
     useEffect(() => {
         regionsPlugin?.enableDragSelection({
             drag: true,
-            color: 'rgba(0, 0, 0, 0.3)',
+            color: 'rgba(0, 0, 0, 0.2)',
         }, 1);
     }, []);
 
@@ -134,7 +140,7 @@ const Waveform = ({
     useEffect(() => {
         regionsPlugin.getRegions().forEach(region => { 
             if(selectedRegion[0] != region) {
-            region.setOptions({ color: 'rgba(0, 0, 0, 0.1)' }) 
+                region.remove();
             }
         });
     }, [selectedRegion])

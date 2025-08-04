@@ -5,7 +5,7 @@ import PauseIcon from '@mui/icons-material/Pause';
 import ArrowBackIosIcon from '@mui/icons-material/ArrowBackIos';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
-import ContentCutIcon from '@mui/icons-material/ContentCut';
+import ContentPasteIcon from '@mui/icons-material/ContentPaste';
 import DeleteIcon from '@mui/icons-material/Delete';
 import RestoreIcon from '@mui/icons-material/Restore';
 import Box from '@mui/material/Box';
@@ -15,9 +15,15 @@ import Stack from '@mui/material/Stack';
 import { useWavesurfer } from '@wavesurfer/react'
 import RegionsPlugin from 'wavesurfer.js/dist/plugins/regions.esm.js'
 import RecordPlugin from 'wavesurfer.js/dist/plugins/record.esm.js'
+import TimelinePlugin from 'wavesurfer.js/dist/plugins/timeline.esm.js'
+import { useHotkeys } from 'react-hotkeys-hook'
 
 import Waveform from './Waveform';
-import { duration } from '@mui/material';
+
+import {
+    postJson,
+    getJson
+} from "pithekos-lib";
 
 const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
     const mediaStream = useRef(null);
@@ -27,7 +33,15 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
     const waveformRef = useRef(null);
     const regionsPlugin = useMemo(() => RegionsPlugin.create(), []);
     const recordPlugin = useMemo(() => RecordPlugin.create(), []);
-    const plugins = useMemo(() => [regionsPlugin, recordPlugin], [regionsPlugin, recordPlugin]);
+    const timelinePlugin = useMemo(() => TimelinePlugin.create({
+        height: 25,
+        insertPosition: 'beforebegin',
+        timeInterval: 0.2,
+        primaryLabelInterval: 5,
+        secondaryLabelInterval: 1,
+      })
+      , []);
+    const plugins = useMemo(() => [regionsPlugin, recordPlugin, timelinePlugin], [regionsPlugin, recordPlugin, timelinePlugin]);
     const [prise, setPrise] = useState("1");
     const [bakExists, setBakExists] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
@@ -37,6 +51,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
     const [trackDurations, setTrackDurations] = useState({});
     const [maxDuration, setMaxDuration] = useState(0);
     const [selectedRegion, setSelectedRegion] = useState([]);
+    const [copiedRegion, setCopiedRegion] = useState(null);
     const cursorRef = useRef(null);
 
     const getUrl = (segment = "bytes", chapter = obs[0], paragraph = obs[1], newPrise = prise, ext = "mp3") => {
@@ -154,6 +169,24 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                     setMaxDuration(newMaxDuration);
                 }
                 updateMainTrackWidth(newMaxDuration);
+                const newJson = [
+                    {
+                        "track": A.split("_")[0],
+                        "start": 0,
+                        "end": startTimeB,
+                    },
+                    {
+                        "track": B.split("_")[0],
+                        "start": startTimeB,
+                        "end": endTimeB,
+                    },
+                    {
+                        "track": A.split("_")[0],
+                        "start": endTimeB,
+                        "end": wavesurfer.getDuration(),
+                    }
+                ]
+                updateJson(newJson);
 
                 const formData = new FormData();
                 formData.append("file", wav);
@@ -328,7 +361,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
     useEffect(() => {
         regionsPlugin?.enableDragSelection({
             drag: true,
-            color: 'rgba(0, 0, 0, 0.3)',
+            color: 'rgba(0, 0, 0, 0.2)',
         }, 1);
         regionsPlugin?.on('region-created', handleRegionCreate);
         regionsPlugin?.on('region-updated', handleRegionUpdate);
@@ -383,6 +416,20 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
             setBakExists(await fileExists(getUrl() + ".bak"))
         }
         updateBakExists();
+        getJson(getUrl("raw", obs[0], obs[1], prise, "json")).then(data => {
+            console.log(data.json);
+            console.log(data.json.length);
+            for(let i = 0; i < data.json.length; i++) {
+                console.log(data.json[i]);
+                regionsPlugin.addRegion({
+                    content: data.json[i].track,
+                    start: data.json[i].start,
+                    end: data.json[i].end,
+                    color: 'rgba(21, 252, 0, 0.2)',
+                })
+            }
+        })
+
     }, [obs, prise, audioUrl])
 
     const [otherPrises, setOtherPrises] = useState([]);
@@ -400,18 +447,29 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
         console.log('Région sélectionnée:', regionData);
         const oldRegion = selectedRegion[0];
         console.log(`oldRegion: ${selectedRegion}`);
-        oldRegion?.setOptions({ color: 'rgba(0, 0, 0, 0.1)' });
-        regionData[0].setOptions({
-            color: 'rgba(0, 0, 0, 0.3)',
-        });
+        oldRegion?.remove();
         console.log(`regionData: ${regionData}`);
         setSelectedRegion(regionData);
     };
 
-    const copyRegion = async (regionData) => {
-        console.log(regionData[0].start, regionData[0].end);
-        const concatenatedUrl = await insertAudio(prise, regionData[1], cursorTime, regionData[0].start, regionData[0].end);
+    const pasteRegion = async (regionData) => {
+        if (!copiedRegion) return;
+        const start = copiedRegion[0].start;
+        const end = copiedRegion[0].end;
+        const track = copiedRegion[1];
+        const insertTime = cursorTime;
+
+        if ( regionData[1] == "0") {
+            await cutRegion(regionData);
+        }
+
+        const concatenatedUrl = await insertAudio(prise, track, insertTime, start, end);
         setAudioUrl(concatenatedUrl);
+        setCopiedRegion(null);
+    }
+
+    const copyRegion = async (regionData) => {
+        setCopiedRegion(regionData);
     }
 
     const cutRegion = async (regionData) => {
@@ -471,37 +529,26 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
         return null;
     }
 
-    const deleteRegion = (regionData) => {
-        regionData[0].remove();
-        setSelectedRegion([]);
-    }
-
     const updateOtherPrises = async () => {
-        console.log("--- updateOtherPrises ---");
         if (showOtherTracks) {
-            console.log("Other tracks are shown");
             const prises = await listPrises(obs[0], obs[1]);
             console.log(prises);
 
             const chapterString = obs[0] < 10 ? `0${obs[0]}` : obs[0];
             const paragraphString = obs[1] < 10 ? `0${obs[1]}` : obs[1];
             const newPrises = prises.map(prise => prise.split(`/${chapterString}-${paragraphString}_`)[1].replace(".mp3", ""));
-            console.log(`New prises: ${newPrises}`);
             const sortedPrises = newPrises.sort((a, b) => a.split("_")[0] - b.split("_")[0]);
-            console.log(`Sorted prises: ${sortedPrises}`);
-            setOtherPrises(sortedPrises);
+            setOtherPrises(sortedPrises.filter(prise => !prise.includes(".json")));
 
             setTrackDurations({});
             setMaxDuration(0);
             setSelectedRegion([]);
         } else {
-            console.log("Other tracks are hidden");
             setOtherPrises([]);
             setTrackDurations({});
             setMaxDuration(0);
             setSelectedRegion([]);
         }
-        console.log("--- done ---");
     }
 
     const checkIfPriseExists = async () => {
@@ -522,12 +569,33 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                     body: formData,
                 });
                 setAudioUrl(url0);
-                // setPrise("0");
+                setPrise("0");
+
+                setTimeout(async () => {
+                    const newJson = [
+                        {
+                            "track": "1",
+                            "start": 0,
+                            "end": wavesurfer.getDuration(),
+                        },
+                    ]
+    
+                    updateJson(newJson);
+                }, 100)
+
             } else {
                 setPrise("0");
 
             }
         }
+    }
+
+    const updateJson = async (newJson) => {
+        const payload = JSON.stringify({ payload: JSON.stringify(newJson) });
+        const response = await postJson(
+            getUrl("raw", obs[0], obs[1], prise, "json"),
+            payload
+        );
     }
 
     useEffect(() => {
@@ -551,17 +619,48 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
     }, [maxDuration, cursorTime])
 
     useEffect(() => {
-        regionsPlugin.getRegions().forEach(region => { 
-            if(selectedRegion[0] != region) {
-            region.setOptions({ color: 'rgba(0, 0, 0, 0.1)' }) 
+        regionsPlugin.getRegions().forEach(region => {
+            if (selectedRegion[0] != region) {
+                region.remove();
             }
         });
     }, [selectedRegion])
-    
+
+    useEffect(() => {
+        const handleKey = (event) => {
+            if(selectedRegion[1] == "0") {
+                if (event.key === 'Backspace') {
+                    cutRegion(selectedRegion);
+                    return;
+                } else if (event.key === 'Delete') {
+                    cutRegion(selectedRegion);
+                    return;
+                }
+                
+            } else {
+                if (event.key === 'c' && event.ctrlKey) {
+                    copyRegion(selectedRegion);
+                    return;
+                }
+            }
+             if (event.key === 'v' && event.ctrlKey) {
+                pasteRegion(copiedRegion);
+                return;
+            } else if (event.key === 'z' && event.ctrlKey) {
+                onRestore();
+                return;
+            } else if (event.key === ' ') {
+                onPlayPause();
+                return;
+            }
+        }
+        window.addEventListener('keydown', handleKey);
+        return () => window.removeEventListener('keydown', handleKey);
+    })
 
     return (
-        <Box sx={{ position: 'relative', width: '100%', height: '100%' }}>
-            <Stack sx={{ position: 'relative', mt: 5, backgroundColor: "rgb(224, 224, 224)", borderRadius: 1, boxShadow: 1, width: '100%', height: otherPrises?.length > 0 ? `${otherPrises?.length * 100}px` : '150px', overflow: '' }}>
+        <Box sx={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden' }}>
+            <Stack sx={{ position: 'relative', mt: 5, backgroundColor: "rgb(224, 224, 224)", borderRadius: 1, boxShadow: 1, width: '100%', height: otherPrises?.length > 0 ? `${otherPrises?.length * 100}px + 150px` : '150px', overflow: 'hidden' }}>
 
                 {/* Barre du haut */}
                 <Box sx={{ display: 'flex', alignItems: 'center', backgroundColor: 'rgb(19, 18, 15)', justifyContent: 'space-between', zIndex: 4 }}>
@@ -581,34 +680,37 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                         {/* Boutons d'édition pour les régions sélectionnées */}
                         {selectedRegion.length > 0 && (
                             <Box sx={{ display: 'flex', gap: 1, mr: 2 }}>
+                                {copiedRegion && (
+                                    <IconButton
+                                        size="small"
+                                        onClick={() => pasteRegion(selectedRegion)}
+                                        sx={{ backgroundColor: 'rgb(63, 167, 53)', color: 'white', '&:hover': { backgroundColor: 'rgb(57, 126, 60)' } }}
+                                        title="Coller la région sélectionnée"
+                                    >
+                                        <ContentPasteIcon fontSize="small" />
+                                    </IconButton>
+                                )}
                                 {selectedRegion[1] != "0" && (
                                     <IconButton
                                         size="small"
                                         onClick={() => copyRegion(selectedRegion)}
                                         sx={{ backgroundColor: 'rgb(63, 167, 53)', color: 'white', '&:hover': { backgroundColor: 'rgb(57, 126, 60)' } }}
-                                        title="Appliquer la région sélectionnée à la track principale"
+                                        title="Copier la région sélectionnée"
                                     >
                                         <ContentCopyIcon fontSize="small" />
                                     </IconButton>
                                 )}
-                                {selectedRegion[1] == "0" && (
+                                {selectedRegion && selectedRegion[1] == "0" && (
                                     <IconButton
                                         size="small"
                                         onClick={() => cutRegion(selectedRegion)}
-                                        sx={{ backgroundColor: 'rgb(53, 92, 124)', color: 'white', '&:hover': { backgroundColor: 'rgb(85, 97, 168)' } }}
-                                        title="Appliquer la région sélectionnée à la track principale"
+                                        sx={{ backgroundColor: 'rgb(168, 85, 85)', color: 'white', '&:hover': { backgroundColor: 'rgb(124, 53, 53)' } }}
+                                        title="Supprimer la région sélectionnée"
                                     >
-                                        <ContentCutIcon fontSize="small" />
+                                        <DeleteIcon fontSize="small" />
                                     </IconButton>
                                 )}
-                                <IconButton
-                                    size="small"
-                                    onClick={() => deleteRegion(selectedRegion)}
-                                    sx={{ backgroundColor: 'rgb(207, 89, 81)', color: 'white', '&:hover': { backgroundColor: 'rgb(160, 70, 70)' } }}
-                                    title="Effacer les sélections"
-                                >
-                                    <DeleteIcon fontSize="small" />
-                                </IconButton>
+                                
                             </Box>
                         )}
 
@@ -664,10 +766,10 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                         {otherPrises.map((priseNumber, index) => (
                             priseNumber !== "0" && (
                                 <Box key={`${obs[0]}-${obs[1]}-${priseNumber}-${index}`} sx={{ mb: 1 }} className={`audio-waveform ${isLoading ? 'loading' : 'loaded'}`}>
-                                    <Box sx={{ fontSize: 11, color: 'rgb(120, 120, 120)', mb: 0.5 }}>
+                                    {/* <Box sx={{ fontSize: 11, color: 'rgb(120, 120, 120)', mb: 0.5 }}>
                                         Track {priseNumber.split("_")[0]} {priseNumber.split("_")[1] ? `- ${priseNumber.split("_")[1]}` : ""}
                                         {trackDurations[priseNumber] && ` - ${formatTime(trackDurations[priseNumber])}`}
-                                    </Box>
+                                    </Box> */}
                                     <Waveform
                                         priseNumber={priseNumber}
                                         obs={obs}
