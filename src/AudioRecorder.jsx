@@ -8,6 +8,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import ContentPasteIcon from '@mui/icons-material/ContentPaste';
 import DeleteIcon from '@mui/icons-material/Delete';
 import RestoreIcon from '@mui/icons-material/Restore';
+import EditIcon from '@mui/icons-material/Edit';
 import Box from '@mui/material/Box';
 import Divider from '@mui/material/Divider';
 import IconButton from '@mui/material/IconButton';
@@ -16,7 +17,6 @@ import { useWavesurfer } from '@wavesurfer/react'
 import RegionsPlugin from 'wavesurfer.js/dist/plugins/regions.esm.js'
 import RecordPlugin from 'wavesurfer.js/dist/plugins/record.esm.js'
 import TimelinePlugin from 'wavesurfer.js/dist/plugins/timeline.esm.js'
-import { useHotkeys } from 'react-hotkeys-hook'
 
 import Waveform from './Waveform';
 
@@ -39,8 +39,8 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
         timeInterval: 0.2,
         primaryLabelInterval: 5,
         secondaryLabelInterval: 1,
-      })
-      , []);
+    })
+        , []);
     const plugins = useMemo(() => [regionsPlugin, recordPlugin, timelinePlugin], [regionsPlugin, recordPlugin, timelinePlugin]);
     const [prise, setPrise] = useState("1");
     const [bakExists, setBakExists] = useState(false);
@@ -80,6 +80,19 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
             return false;
         }
     }
+
+    // const getFilenameByPrise = async (prise) => {
+    //     const chapterString = obs[0] < 10 ? `0${obs[0]}` : obs[0];
+    //     const paragraphString = obs[1] < 10 ? `0${obs[1]}` : obs[1];
+    //     const url = `http://localhost:19119/burrito/paths/${metadata.local_path}`
+    //     const response = await fetch(url, {
+    //         method: "GET",
+    //     })
+    //     const data = await response.json();
+    //     console.log(data);
+    //     const filename = data.find(item => item.includes(`audio_content/${chapterString}-${paragraphString}/${chapterString}-${paragraphString}_${prise}`));
+    //     return filename;
+    // }
 
     const listPrises = async (chapter, paragraph) => {
         const url = `http://localhost:19119/burrito/paths/${metadata.local_path}`
@@ -195,7 +208,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                     body: formData,
                 });
                 const data = await response.json();
-                console.log(data);
+                // console.log(data);
 
                 return newUrl;
             }
@@ -345,8 +358,25 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
 
     wavesurfer?.on("ready", () => {
         const duration = wavesurfer?.getDuration();
-        console.log(duration);
+        // console.log(duration);
         updateMainTrackWidth(duration);
+        // if (regionsPlugin.getRegions().length <= 0) {
+        //     getJson(getUrl("raw", obs[0], obs[1], prise, "json")).then(data => {
+        //         console.log("Data: ", data.json);
+        //         console.log("Taille: ", data.json.length);
+        //         for (let i = 0; i < data.json.length; i++) {
+        //             console.log("data.json[i]: ", data.json[i]);
+        //             regionsPlugin.addRegion({
+        //                 start: data.json[i].start,
+        //                 end: data.json[i].end,
+        //                 content: data.json[i].track,
+        //                 color: 'rgba(21, 252, 0, 0.1)',
+        //                 drag: false,
+        //                 resize: false,
+        //             })
+        //         }
+        //     })
+        // }
         setTimeout(() => {
             setIsLoading(false);
         }, 100)
@@ -416,19 +446,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
             setBakExists(await fileExists(getUrl() + ".bak"))
         }
         updateBakExists();
-        getJson(getUrl("raw", obs[0], obs[1], prise, "json")).then(data => {
-            console.log(data.json);
-            console.log(data.json.length);
-            for(let i = 0; i < data.json.length; i++) {
-                console.log(data.json[i]);
-                regionsPlugin.addRegion({
-                    content: data.json[i].track,
-                    start: data.json[i].start,
-                    end: data.json[i].end,
-                    color: 'rgba(21, 252, 0, 0.2)',
-                })
-            }
-        })
+
 
     }, [obs, prise, audioUrl])
 
@@ -444,11 +462,11 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
     };
 
     const handleRegionSelect = (regionData) => {
-        console.log('Région sélectionnée:', regionData);
+        // console.log('Région sélectionnée:', regionData);
         const oldRegion = selectedRegion[0];
-        console.log(`oldRegion: ${selectedRegion}`);
+        // console.log(`oldRegion: ${selectedRegion}`);
         oldRegion?.remove();
-        console.log(`regionData: ${regionData}`);
+        // console.log(`regionData: ${regionData}`);
         setSelectedRegion(regionData);
     };
 
@@ -459,7 +477,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
         const track = copiedRegion[1];
         const insertTime = cursorTime;
 
-        if ( regionData[1] == "0") {
+        if (regionData[1] == "0") {
             await cutRegion(regionData);
         }
 
@@ -517,8 +535,8 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                     body: formData,
                 });
                 const data = await response.json();
-                console.log(data);
-
+                // console.log(data);
+                // 
                 setAudioUrl(newUrl);
 
                 return newUrl;
@@ -529,10 +547,29 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
         return null;
     }
 
+    const editAudio = async (oldName, newName) => {
+        newName = "test1"
+        /// *`POST /ingredient/copy/<repo_path>?src_path=<src_path>&target_path=<target_path>&delete_src`*
+        ///
+        /// Typically mounted as **`/burrito/copy/<repo_path>?src_path=<src_path>&target_path=<target_path>&delete_src`**
+        ///
+        /// Copies an ingredient to a new location deleting the source.
+        const chapterString = obs[0] < 10 ? `0${obs[0]}` : obs[0];
+        const paragraphString = obs[1] < 10 ? `0${obs[1]}` : obs[1];
+        newName = newName.trim().replaceAll("_", "-").replaceAll(" ", "-").replaceAll("/", "-").replaceAll("\\", "-");
+
+        const srcPath = `audio_content/${chapterString}-${paragraphString}/${chapterString}-${paragraphString}_${oldName}.mp3`;
+        const targetPath = `audio_content/${chapterString}-${paragraphString}/${chapterString}-${paragraphString}_${oldName.split("_")[0]}_${newName}.mp3`;
+        let url = `http://localhost:19119/burrito/ingredient/copy/${metadata.local_path}?src_path=${srcPath}&target_path=${targetPath}&delete_src=true`;
+        fetch(url, {
+            method: "POST",
+        });
+    }
+
     const updateOtherPrises = async () => {
         if (showOtherTracks) {
             const prises = await listPrises(obs[0], obs[1]);
-            console.log(prises);
+            // console.log(prises);
 
             const chapterString = obs[0] < 10 ? `0${obs[0]}` : obs[0];
             const paragraphString = obs[1] < 10 ? `0${obs[1]}` : obs[1];
@@ -557,7 +594,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
             const url1 = getUrl("bytes", obs[0], obs[1], 1);
             const priseExists = await fileExists(url0);
             const prise1Exists = await fileExists(url1);
-            console.log(`Prise 0: ${priseExists}, Prise 1: ${prise1Exists}`);
+            // console.log(`Prise 0: ${priseExists}, Prise 1: ${prise1Exists}`);
             if (!prise1Exists) return;
             if (!priseExists) {
                 const newFile = await fetch(url1);
@@ -579,7 +616,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                             "end": wavesurfer.getDuration(),
                         },
                     ]
-    
+
                     updateJson(newJson);
                 }, 100)
 
@@ -628,7 +665,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
 
     useEffect(() => {
         const handleKey = (event) => {
-            if(selectedRegion[1] == "0") {
+            if (selectedRegion[1] == "0") {
                 if (event.key === 'Backspace') {
                     cutRegion(selectedRegion);
                     return;
@@ -636,14 +673,14 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                     cutRegion(selectedRegion);
                     return;
                 }
-                
+
             } else {
                 if (event.key === 'c' && event.ctrlKey) {
                     copyRegion(selectedRegion);
                     return;
                 }
             }
-             if (event.key === 'v' && event.ctrlKey) {
+            if (event.key === 'v' && event.ctrlKey) {
                 pasteRegion(copiedRegion);
                 return;
             } else if (event.key === 'z' && event.ctrlKey) {
@@ -651,6 +688,16 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                 return;
             } else if (event.key === ' ') {
                 onPlayPause();
+                return;
+            } else if (event.key === 'ArrowLeft') {
+                setCursorTime(cursorTime - 0.1);
+                return;
+            } else if (event.key === 'ArrowRight') {
+                if (cursorTime + 0.1 > maxDuration) {
+                    setCursorTime(maxDuration);
+                    return;
+                }
+                setCursorTime(cursorTime + 0.1);
                 return;
             }
         }
@@ -710,7 +757,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                                         <DeleteIcon fontSize="small" />
                                     </IconButton>
                                 )}
-                                
+
                             </Box>
                         )}
 
@@ -766,10 +813,11 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                         {otherPrises.map((priseNumber, index) => (
                             priseNumber !== "0" && (
                                 <Box key={`${obs[0]}-${obs[1]}-${priseNumber}-${index}`} sx={{ mb: 1 }} className={`audio-waveform ${isLoading ? 'loading' : 'loaded'}`}>
-                                    {/* <Box sx={{ fontSize: 11, color: 'rgb(120, 120, 120)', mb: 0.5 }}>
+                                    <Box sx={{ fontSize: 11, color: 'rgb(120, 120, 120)', mb: 0.5 }}>
                                         Track {priseNumber.split("_")[0]} {priseNumber.split("_")[1] ? `- ${priseNumber.split("_")[1]}` : ""}
-                                        {trackDurations[priseNumber] && ` - ${formatTime(trackDurations[priseNumber])}`}
-                                    </Box> */}
+                                        <IconButton onClick={() => editAudio(priseNumber)} sx={{ }}> <EditIcon /> </IconButton>
+                                        {/* {trackDurations[priseNumber] && ` - ${formatTime(trackDurations[priseNumber])}`} */}
+                                    </Box>
                                     <Waveform
                                         priseNumber={priseNumber}
                                         obs={obs}
