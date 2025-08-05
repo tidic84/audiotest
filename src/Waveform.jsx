@@ -69,10 +69,10 @@ const Waveform = ({
         const handleReady = () => {
             const duration = wavesurfer.getDuration();
 
-            if (maxDuration && duration < maxDuration) {
-                const ratio = duration / maxDuration;
-                console.log(`Track ${priseNumber}: ${duration}s/${maxDuration}s (${(ratio * 100).toFixed(1)}%)`);
-            }
+            // if (maxDuration && duration < maxDuration) {
+            //     const ratio = duration / maxDuration;
+            //     console.log(`Track ${priseNumber}: ${duration}s/${maxDuration}s (${(ratio * 100).toFixed(1)}%)`);
+            // }
 
             if (onDurationUpdate) {
                 onDurationUpdate(priseNumber, duration);
@@ -128,8 +128,8 @@ const Waveform = ({
         const duration = wavesurfer?.getDuration();
         if (maxDuration && maxDuration >= duration) {
             let newDuration = mainTrackRef.current.clientWidth / maxDuration * duration;
-            console.log(`${mainTrackRef.current.clientWidth} / ${maxDuration} * ${duration} = ${newDuration}`)
-            setActualDuration(newDuration - 20);
+            // console.log(`${mainTrackRef.current.clientWidth} / ${maxDuration} * ${duration} = ${newDuration}`)
+            setActualDuration(newDuration);
         }
     }
 

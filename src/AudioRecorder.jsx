@@ -699,6 +699,8 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                 }
                 setCursorTime(cursorTime + 0.1);
                 return;
+            } else if (event.key === 'r') {
+                return isRecording ? stopRecording() : startRecording();
             }
         }
         window.addEventListener('keydown', handleKey);
