@@ -1,4 +1,4 @@
-import { useRef, useState, useMemo, useEffect } from 'react';
+import { useRef, useState, useMemo, useEffect, useCallback } from 'react';
 import MicIcon from '@mui/icons-material/Mic';
 import StopIcon from '@mui/icons-material/Stop';
 import PauseIcon from '@mui/icons-material/Pause';
@@ -26,13 +26,14 @@ import {
 } from "pithekos-lib";
 
 const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
-    const mediaStream = useRef(null);
-    const mediaRecorder = useRef(null);
     const [isRecording, setIsRecording] = useState(false);
-    const chunks = useRef([]);
     const waveformRef = useRef(null);
     const regionsPlugin = useMemo(() => RegionsPlugin.create(), []);
-    const recordPlugin = useMemo(() => RecordPlugin.create(), []);
+    const recordPlugin = useMemo(() => RecordPlugin.create({
+        renderRecordedAudio: true,
+        scrollingWaveform: false,
+        audioBitsPerSecond: 128000,
+    }), []);
     const timelinePlugin = useMemo(() => TimelinePlugin.create({
         height: 25,
         insertPosition: 'beforebegin',
@@ -53,6 +54,16 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
     const [selectedRegion, setSelectedRegion] = useState([]);
     const [copiedRegion, setCopiedRegion] = useState(null);
     const cursorRef = useRef(null);
+    const recordingWaveformRef = useRef(null);
+    const recordingCanvasRef = useRef(null);
+    const [nextPriseNumber, setNextPriseNumber] = useState(null);
+    const [otherPrises, setOtherPrises] = useState([]);
+    const mediaRecorderRef = useRef(null);
+    const mediaStreamRef = useRef(null);
+    const chunksRef = useRef([]);
+    const analyserRef = useRef(null);
+    const animationFrameRef = useRef(null);
+    const isRecordingRef = useRef(false);
 
     const getUrl = (segment = "bytes", chapter = obs[0], paragraph = obs[1], newPrise = prise, ext = "mp3") => {
         let chapterString = chapter < 10 ? `0${chapter}` : chapter;
@@ -218,7 +229,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
         return null;
     };
 
-    const getOldPriseNumber = async () => {
+    const getOldPriseNumber = useCallback(async () => {
         const url = `http://localhost:19119/burrito/paths/${metadata.local_path}`
         const response = await fetch(url, {
             method: "GET",
@@ -234,44 +245,98 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
             .sort((a, b) => b - a)[0];
 
         return isNaN(newPrise) ? 0 : newPrise;
-    }
+    }, [metadata.local_path, obs]);
+
+    const startWaveformAnimation = useCallback(() => {
+        if (!recordingCanvasRef.current || !analyserRef.current) return;
+
+        const canvas = recordingCanvasRef.current;
+        const canvasCtx = canvas.getContext('2d');
+        const analyser = analyserRef.current;
+
+        const bufferLength = analyser.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+
+        const draw = () => {
+            if (!isRecordingRef.current) return;
+
+            analyser.getByteTimeDomainData(dataArray);
+
+            canvasCtx.fillStyle = 'rgb(245, 245, 245)';
+            canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
+
+            canvasCtx.lineWidth = 2;
+            canvasCtx.strokeStyle = 'rgb(255, 107, 107)';
+            canvasCtx.beginPath();
+
+            const sliceWidth = canvas.width * 1.0 / bufferLength;
+            let x = 0;
+
+            for (let i = 0; i < bufferLength; i++) {
+                const v = dataArray[i] / 128.0;
+                const y = v * canvas.height / 2;
+
+                if (i === 0) {
+                    canvasCtx.moveTo(x, y);
+                } else {
+                    canvasCtx.lineTo(x, y);
+                }
+
+                x += sliceWidth;
+            }
+
+            canvasCtx.lineTo(canvas.width, canvas.height / 2);
+            canvasCtx.stroke();
+
+            animationFrameRef.current = requestAnimationFrame(draw);
+        };
+
+        draw();
+    }, []);
 
     const startRecording = async () => {
         try {
-            const stream = await navigator.mediaDevices.getUserMedia(
-                { audio: true }
-            );
-            mediaStream.current = stream;
-            mediaRecorder.current = new MediaRecorder(stream);
+            // Calculer le numéro de la prochaine prise
+            const nextPrise = (await getOldPriseNumber()) + 1;
+            setNextPriseNumber(nextPrise);
 
-            mediaRecorder.current.ondataavailable = (e) => {
-                if (e.data.size > 0) {
-                    chunks.current.push(e.data);
+            // Demander l'accès au microphone
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaStreamRef.current = stream;
+
+            // Créer l'analyseur audio pour la visualisation
+            const audioContext = new AudioContext();
+            const analyser = audioContext.createAnalyser();
+            const source = audioContext.createMediaStreamSource(stream);
+            source.connect(analyser);
+            
+            analyser.fftSize = 2048;
+            analyserRef.current = analyser;
+
+            // Créer le MediaRecorder
+            mediaRecorderRef.current = new MediaRecorder(stream);
+            chunksRef.current = [];
+
+            mediaRecorderRef.current.ondataavailable = (event) => {
+                if (event.data.size > 0) {
+                    chunksRef.current.push(event.data);
                 }
             };
-            mediaRecorder.current.onstart = async () => {
-                setTimeout(() => {
-                    setIsRecording(true);
-                }, 250);
-            };
-            mediaRecorder.current.onstop = async () => {
-                setIsRecording(false);
-                const recordedBlob = new Blob(
-                    chunks.current, { type: "audio/mp3" }
-                );
-                const url = URL.createObjectURL(recordedBlob);
-                // setAudioUrl(url);
-                chunks.current = [];
 
+            mediaRecorderRef.current.onstop = async () => {
+                const recordedBlob = new Blob(chunksRef.current, { type: 'audio/mp3' });
+                
+                // Sauvegarder l'enregistrement
                 const formData = new FormData();
                 formData.append("file", recordedBlob);
 
-                const newPrise = (await getOldPriseNumber()) + 1;
-                const postUrl = getUrl("bytes", obs[0], obs[1], newPrise);
+                const postUrl = getUrl("bytes", obs[0], obs[1], nextPrise);
                 fetch(postUrl, {
                     method: "POST",
                     body: formData
                 });
+
+                // Calculer la durée et mettre à jour l'interface
                 const audioContext = new AudioContext();
                 const audioBuffer = await audioContext.decodeAudioData(await recordedBlob.arrayBuffer());
                 const duration = audioBuffer.getChannelData(0).length / audioBuffer.sampleRate;
@@ -279,24 +344,62 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                     setMaxDuration(duration);
                     updateMainTrackWidth(undefined, duration);
                 }
+                
+                // Nettoyer
+                setNextPriseNumber(null);
+                chunksRef.current = [];
+                
                 checkIfPriseExists();
                 updateOtherPrises();
             };
-            mediaRecorder.current.start(250);
+
+            // Démarrer l'enregistrement et la visualisation
+            mediaRecorderRef.current.start(250);
+            isRecordingRef.current = true;
+            setIsRecording(true);
+            
+            // Petit délai pour s'assurer que tout est configuré
+            setTimeout(() => {
+                startWaveformAnimation();
+            }, 100);
+            
         } catch (error) {
-            console.error('Error accessing microphone:', error);
+            console.error('Erreur lors de l\'accès au microphone:', error);
         }
     };
 
-    const stopRecording = () => {
-        if (mediaRecorder.current && mediaRecorder.current.state === 'recording') {
-            mediaRecorder.current.stop();
+    const stopRecording = async () => {
+        try {
+            if (mediaRecorderRef.current && isRecording) {
+                // Arrêter l'enregistrement
+                isRecordingRef.current = false;
+                mediaRecorderRef.current.stop();
+                setIsRecording(false);
 
-        }
-        if (mediaStream.current) {
-            mediaStream.current.getTracks().forEach((track) => {
-                track.stop();
-            });
+                // Arrêter l'animation
+                if (animationFrameRef.current) {
+                    cancelAnimationFrame(animationFrameRef.current);
+                }
+
+                // Arrêter le stream
+                if (mediaStreamRef.current) {
+                    mediaStreamRef.current.getTracks().forEach(track => {
+                        track.stop();
+                    });
+                    mediaStreamRef.current = null;
+                }
+
+                // Nettoyer le canvas
+                if (recordingCanvasRef.current) {
+                    const canvas = recordingCanvasRef.current;
+                    const canvasCtx = canvas.getContext('2d');
+                    canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+                }
+
+                analyserRef.current = null;
+            }
+        } catch (error) {
+            console.error('Erreur lors de l\'arrêt de l\'enregistrement:', error);
         }
     };
 
@@ -396,6 +499,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
         regionsPlugin?.on('region-created', handleRegionCreate);
         regionsPlugin?.on('region-updated', handleRegionUpdate);
         regionsPlugin?.on('region-clicked', handleRegionClick);
+
     }, [wavesurfer]);
 
     const handleRegionCreate = (region) => {
@@ -441,6 +545,17 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
         updateAudioUrl();
     }, [obs, prise, bakExists])
 
+    // Mettre à jour le numéro de la prochaine prise
+    useEffect(() => {
+        const updateNextPrise = async () => {
+            if (!isRecording) {
+                const nextPrise = (await getOldPriseNumber()) + 1;
+                setNextPriseNumber(nextPrise);
+            }
+        };
+        updateNextPrise();
+    }, [obs, isRecording, getOldPriseNumber]);
+
     useEffect(() => {
         const updateBakExists = async () => {
             setBakExists(await fileExists(getUrl() + ".bak"))
@@ -449,8 +564,6 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
 
 
     }, [obs, prise, audioUrl])
-
-    const [otherPrises, setOtherPrises] = useState([]);
 
     const updateTrackDuration = (trackId, duration) => {
         setTrackDurations(prev => {
@@ -848,7 +961,51 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                                 </Box>
                             )
                         ))}
-                        {otherPrises.length === 0 && (
+                        {/* Piste vide pour l'enregistrement (toujours visible) */}
+                        <Box sx={{ mb: -1.2 }} className={`audio-waveform ${isLoading ? 'loading' : 'loaded'}`}>
+                            <Box sx={{ 
+                                display: 'flex',
+                                alignItems: 'center',
+                                backgroundColor: isRecording ? 'rgb(255, 240, 240)' : 'rgb(245, 245, 245)',
+                                mb: 1,
+                                borderRadius: 1,
+                                position: 'relative',
+                                border: isRecording ? '2px solid rgb(255, 107, 107)' : '1px dashed rgb(200, 200, 200)',
+                                minHeight: '82px'
+                            }}>
+                                <Box sx={{ flex: 1, position: 'relative', overflow: 'hidden', p: 1 }}>
+                                    <Box sx={{ fontSize: 11, color: isRecording ? 'rgb(255, 107, 107)' : 'rgb(120, 120, 120)', mb: 0.5 }}>
+                                        {isRecording ? `Enregistrement en cours - Prise ${nextPriseNumber}` : `Piste vide - Prochaine prise ${nextPriseNumber || '...'}`}
+                                    </Box>
+                                    {isRecording && (
+                                        <canvas
+                                            ref={recordingCanvasRef}
+                                            width={800}
+                                            height={60}
+                                            style={{
+                                                width: '100%',
+                                                height: '60px',
+                                                overflow: 'hidden',
+                                            }}
+                                        />
+                                    )}
+                                    {!isRecording && (
+                                        <Box sx={{ 
+                                            height: '60px', 
+                                            display: 'flex', 
+                                            alignItems: 'center', 
+                                            justifyContent: 'center',
+                                            color: 'rgb(120, 120, 120)',
+                                            fontStyle: 'italic'
+                                        }}>
+                                            Cliquez sur enregistrer pour commencer
+                                        </Box>
+                                    )}
+                                </Box>
+                            </Box>
+                        </Box>
+                        
+                        {otherPrises.length === 0 && !isRecording && (
                             <Box sx={{ textAlign: 'center', py: 2, color: 'rgb(120, 120, 120)' }}>
                                 Aucune autre piste audio trouvée
                             </Box>
