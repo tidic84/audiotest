@@ -64,6 +64,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
     const analyserRef = useRef(null);
     const animationFrameRef = useRef(null);
     const isRecordingRef = useRef(false);
+    const lastCursorTimeRef = useRef(0);
 
     const getUrl = (segment = "bytes", chapter = obs[0], paragraph = obs[1], newPrise = prise, ext = "mp3") => {
         let chapterString = chapter < 10 ? `0${chapter}` : chapter;
@@ -450,46 +451,49 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
         })
     }
 
-    const updateMainTrackWidth = (duration, newMaxDuration = maxDuration) => {
+    const updateMainTrackWidth = useCallback((duration, newMaxDuration = maxDuration) => {
         if (!duration) duration = wavesurfer?.getDuration();
         wavesurfer?.setOptions({
             width: waveformRef.current.clientWidth / newMaxDuration * duration,
         })
-    }
+    }, [wavesurfer, maxDuration]);
 
 
 
-    wavesurfer?.on("ready", () => {
-        const duration = wavesurfer?.getDuration();
-        // console.log(duration);
+    // Créer les handlers avec useCallback pour éviter les re-créations
+    const handleReady = useCallback(() => {
+        if (!wavesurfer) return;
+        const duration = wavesurfer.getDuration();
         updateMainTrackWidth(duration);
-        // if (regionsPlugin.getRegions().length <= 0) {
-        //     getJson(getUrl("raw", obs[0], obs[1], prise, "json")).then(data => {
-        //         console.log("Data: ", data.json);
-        //         console.log("Taille: ", data.json.length);
-        //         for (let i = 0; i < data.json.length; i++) {
-        //             console.log("data.json[i]: ", data.json[i]);
-        //             regionsPlugin.addRegion({
-        //                 start: data.json[i].start,
-        //                 end: data.json[i].end,
-        //                 content: data.json[i].track,
-        //                 color: 'rgba(21, 252, 0, 0.1)',
-        //                 drag: false,
-        //                 resize: false,
-        //             })
-        //         }
-        //     })
-        // }
         setTimeout(() => {
             setIsLoading(false);
-        }, 100)
-    });
-    wavesurfer?.on("loading", () => {
+        }, 100);
+    }, [wavesurfer, updateMainTrackWidth]);
+
+    const handleLoading = useCallback(() => {
         setIsLoading(true);
-    });
-    wavesurfer?.on("timeupdate", () => {
-        setCursorTime(wavesurfer.getCurrentTime());
-    });
+    }, []);
+
+    const handleTimeUpdate = useCallback(() => {
+        if (!wavesurfer) return;
+        const currentTime = wavesurfer.getCurrentTime();
+        // Throttling: ne mettre à jour que si la différence est significative
+        if (Math.abs(currentTime - lastCursorTimeRef.current) > 0.1) {
+            lastCursorTimeRef.current = currentTime;
+            setCursorTime(currentTime);
+        }
+    }, [wavesurfer]);
+
+    // Gestion des événements WaveSurfer
+    useEffect(() => {
+        if (!wavesurfer) return;
+
+        wavesurfer.on("ready", handleReady);
+        wavesurfer.on("loading", handleLoading);
+        wavesurfer.on("timeupdate", handleTimeUpdate);
+
+        // Le hook @wavesurfer/react gère automatiquement le cleanup
+    }, [wavesurfer, handleReady, handleLoading, handleTimeUpdate]);
 
     useEffect(() => {
         regionsPlugin?.enableDragSelection({
@@ -753,7 +757,9 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
             cursorWidth: showOtherTracks ? 0 : 1,
         })
         setTimeout(() => {
-            cursorRef.current.style.backgroundColor = 'red';
+            if (cursorRef.current) {
+                cursorRef.current.style.backgroundColor = 'red';
+            }
         }, 300)
 
         checkIfPriseExists();
