@@ -39,7 +39,7 @@ const Waveform = ({
         },
       })
       , []);
-    const plugins = useMemo(() => [regionsPlugin, timelinePlugin], [regionsPlugin, timelinePlugin]);
+    const plugins = useMemo(() => [regionsPlugin], [regionsPlugin]);
     const [actualDuration, setActualDuration] = useState(0);
 
     const getUrl = (segment = "bytes", chapter = obs[0], paragraph = obs[1], prise = priseNumber) => {
@@ -50,7 +50,7 @@ const Waveform = ({
 
     const waveformConfig = {
         container: waveformRef,
-        height: isMainTrack ? 80 : 60,
+        height: 80,
         waveColor: 'rgb(34, 173, 197)',
         progressColor: 'rgb(64, 107, 114)',
         url: getUrl(),
@@ -196,7 +196,7 @@ const Waveform = ({
             sx={{
                 display: 'flex',
                 alignItems: 'center',
-                backgroundColor: currentTrack == priseNumber ? 'rgb(255, 239, 239)' : 'rgb(255, 255, 255)',
+                backgroundColor: currentTrack == priseNumber ? 'rgb(255, 255, 255)' : 'rgb(255, 255, 255)',
                 mb: 1,
                 borderRadius: 1,
                 position: 'relative',
@@ -207,7 +207,7 @@ const Waveform = ({
                     ref={waveformRef}
                     style={{
                         width: actualDuration,
-                        height: isMainTrack ? '80px' : '60px',
+                        height: isMainTrack ? '100px' : '80px',
                         overflow: 'hidden',
                     }}
                 />

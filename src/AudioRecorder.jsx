@@ -17,7 +17,7 @@ import { useWavesurfer } from '@wavesurfer/react'
 import RegionsPlugin from 'wavesurfer.js/dist/plugins/regions.esm.js'
 import RecordPlugin from 'wavesurfer.js/dist/plugins/record.esm.js'
 import TimelinePlugin from 'wavesurfer.js/dist/plugins/timeline.esm.js'
-
+import Tooltip from '@mui/material/Tooltip';
 import Waveform from './Waveform';
 
 import {
@@ -308,7 +308,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
 
     const { wavesurfer, currentTime, isPlaying } = useWavesurfer({
         container: waveformRef,
-        height: 70,
+        height: 100,
         waveColor: 'rgb(34, 173, 197)',
         progressColor: 'rgb(64, 107, 114)',
         url: audioUrl,
@@ -717,47 +717,56 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                         {/*Timer*/}
                         <Box sx={{ fontSize: 16, fontWeight: 600, minWidth: '60px', textAlign: 'center' }}> {formatTime(currentTime)} </Box>
                         {/*Play/Pause Button*/}
-                        <IconButton onClick={onPlayPause} sx={{ color: 'white' }}> {isPlaying ? <PauseIcon /> : <PlayArrowIcon />} </IconButton>
+                        <Tooltip title={"Space bar to play/pause"}>
+                            <IconButton onClick={onPlayPause} sx={{ color: 'white' }}> {isPlaying ? <PauseIcon /> : <PlayArrowIcon />} </IconButton>
+                        </Tooltip>
                         {/*Record Button*/}
-                        <IconButton onClick={isRecording ? stopRecording : startRecording} sx={{ color: 'white' }}> {isRecording ? <StopIcon sx={{ color: 'red' }} /> : <MicIcon />} </IconButton>
+                        <Tooltip title={"r to record"}>
+                            <IconButton onClick={isRecording ? stopRecording : startRecording} sx={{ color: 'white' }}> {isRecording ? <StopIcon sx={{ color: 'red' }} /> : <MicIcon />} </IconButton>
+                        </Tooltip>
                         {/*Delete Button*/}
                         <IconButton onClick={onDelete} sx={{ color: 'white' }}> <DeleteIcon /> </IconButton>
                         {/* Restore Button */}
-                        {bakExists && <IconButton onClick={onRestore} sx={{ color: 'white' }}> <RestoreIcon /> </IconButton>}
+                        {bakExists && <Tooltip title={"ctrl+z to restore"}>
+                            <IconButton onClick={onRestore} sx={{ color: 'white' }}> <RestoreIcon /> </IconButton>
+                        </Tooltip>}
                     </Box>
                     <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', justifyContent: 'flex-end', marginRight: 2 }}>
                         {/* Boutons d'édition pour les régions sélectionnées */}
                         {selectedRegion.length > 0 && (
                             <Box sx={{ display: 'flex', gap: 1, mr: 2 }}>
                                 {copiedRegion && (
-                                    <IconButton
-                                        size="small"
-                                        onClick={() => pasteRegion(selectedRegion)}
-                                        sx={{ backgroundColor: 'rgb(63, 167, 53)', color: 'white', '&:hover': { backgroundColor: 'rgb(57, 126, 60)' } }}
-                                        title="Coller la région sélectionnée"
-                                    >
-                                        <ContentPasteIcon fontSize="small" />
-                                    </IconButton>
+                                    <Tooltip title={"ctrl+v to paste"}>
+                                        <IconButton
+                                            size="small"
+                                            onClick={() => pasteRegion(selectedRegion)}
+                                            sx={{ backgroundColor: 'rgb(63, 167, 53)', color: 'white', '&:hover': { backgroundColor: 'rgb(57, 126, 60)' } }}
+                                        >
+                                            <ContentPasteIcon fontSize="small" />
+                                        </IconButton>
+                                    </Tooltip>
                                 )}
                                 {selectedRegion[1] != "0" && (
-                                    <IconButton
-                                        size="small"
-                                        onClick={() => copyRegion(selectedRegion)}
-                                        sx={{ backgroundColor: 'rgb(63, 167, 53)', color: 'white', '&:hover': { backgroundColor: 'rgb(57, 126, 60)' } }}
-                                        title="Copier la région sélectionnée"
-                                    >
-                                        <ContentCopyIcon fontSize="small" />
-                                    </IconButton>
+                                    <Tooltip title={"ctrl+c to copy"}>
+                                        <IconButton
+                                            size="small"
+                                            onClick={() => copyRegion(selectedRegion)}
+                                            sx={{ backgroundColor: 'rgb(63, 167, 53)', color: 'white', '&:hover': { backgroundColor: 'rgb(57, 126, 60)' } }}
+                                        >
+                                            <ContentCopyIcon fontSize="small" />
+                                        </IconButton>
+                                    </Tooltip>
                                 )}
                                 {selectedRegion && selectedRegion[1] == "0" && (
-                                    <IconButton
-                                        size="small"
-                                        onClick={() => cutRegion(selectedRegion)}
-                                        sx={{ backgroundColor: 'rgb(168, 85, 85)', color: 'white', '&:hover': { backgroundColor: 'rgb(124, 53, 53)' } }}
-                                        title="Supprimer la région sélectionnée"
-                                    >
-                                        <DeleteIcon fontSize="small" />
-                                    </IconButton>
+                                    <Tooltip title={"suppr to delete"}>
+                                        <IconButton
+                                            size="small"
+                                            onClick={() => cutRegion(selectedRegion)}
+                                            sx={{ backgroundColor: 'rgb(168, 85, 85)', color: 'white', '&:hover': { backgroundColor: 'rgb(124, 53, 53)' } }}
+                                        >
+                                            <DeleteIcon fontSize="small" />
+                                        </IconButton>
+                                    </Tooltip>
                                 )}
 
                             </Box>
@@ -814,12 +823,11 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                     <Box sx={{ p: 1, backgroundColor: 'rgb(235, 235, 235)', height: '100%' }}>
                         {otherPrises.map((priseNumber, index) => (
                             priseNumber !== "0" && (
-                                <Box key={`${obs[0]}-${obs[1]}-${priseNumber}-${index}`} sx={{ mb: 1 }} className={`audio-waveform ${isLoading ? 'loading' : 'loaded'}`}>
-                                    <Box sx={{ fontSize: 11, color: 'rgb(120, 120, 120)', mb: 0.5 }}>
+                                <Box key={`${obs[0]}-${obs[1]}-${priseNumber}-${index}`} sx={{ mb:-1.2 }} className={`audio-waveform ${isLoading ? 'loading' : 'loaded'}`}>
+                                    {/* <Box sx={{ fontSize: 11, color: 'rgb(120, 120, 120)', mb: 0.5 }}>
                                         Track {priseNumber.split("_")[0]} {priseNumber.split("_")[1] ? `- ${priseNumber.split("_")[1]}` : ""}
-                                        <IconButton onClick={() => editAudio(priseNumber)} sx={{ }}> <EditIcon /> </IconButton>
-                                        {/* {trackDurations[priseNumber] && ` - ${formatTime(trackDurations[priseNumber])}`} */}
-                                    </Box>
+                                        <IconButton onClick={() => editAudio(priseNumber)} sx={{}}> <EditIcon /> </IconButton>
+                                    </Box> */}
                                     <Waveform
                                         priseNumber={priseNumber}
                                         obs={obs}
