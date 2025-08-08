@@ -41,11 +41,49 @@ const Waveform = ({
       , []);
     const plugins = useMemo(() => [regionsPlugin], [regionsPlugin]);
     const [actualDuration, setActualDuration] = useState(0);
+    const [fileExists, setFileExists] = useState(false);
+    const [audioUrl, setAudioUrl] = useState(null);
+
+    const checkFileExists = async (audioUrl) => {
+        const url = `http://localhost:19119/burrito/paths/${metadata.local_path}`
+        const ipath = audioUrl.split("?ipath=")[1];
+        try {
+            const response = await fetch(url, {
+                method: "GET",
+            })
+            if (response.ok) {
+                const data = await response.json();
+                return data.includes(ipath);
+            } else {
+                return false;
+            }
+        } catch (error) {
+            console.warn(`Error checking file existence for ${audioUrl}:`, error);
+            return false;
+        }
+    }
+
+    useEffect(() => {
+
+
+        const checkAndSetUrl = async () => {
+            const url = getUrl();
+            const exists = await checkFileExists(url);
+            setFileExists(exists);
+            if (exists) {
+                setAudioUrl(url);
+            } else {
+                setAudioUrl(null);
+            }
+        };
+        checkAndSetUrl();
+    }, [priseNumber, obs, metadata]);
 
     const getUrl = (segment = "bytes", chapter = obs[0], paragraph = obs[1], prise = priseNumber) => {
         let chapterString = chapter < 10 ? `0${chapter}` : chapter;
         let paragraphString = paragraph < 10 ? `0${paragraph}` : paragraph;
-        return `http://localhost:19119/burrito/ingredient/${segment}/${metadata.local_path}?ipath=audio_content/${chapterString}-${paragraphString}/${chapterString}-${paragraphString}_${prise}.mp3`
+        let url = `http://localhost:19119/burrito/ingredient/${segment}/${metadata.local_path}?ipath=audio_content/${chapterString}-${paragraphString}/${chapterString}-${paragraphString}_${prise}.mp3`
+        return url
     }
 
     const waveformConfig = {
@@ -53,7 +91,7 @@ const Waveform = ({
         height: 80,
         waveColor: 'rgb(34, 173, 197)',
         progressColor: 'rgb(64, 107, 114)',
-        url: getUrl(),
+        url: audioUrl,
         plugins: plugins,
         barWidth: 2,
         barGap: 1,
@@ -203,6 +241,7 @@ const Waveform = ({
                 border: isMainTrack ? '2px solid rgb(255, 69, 0)' : '1px solid rgb(200, 200, 200)',
             }}>
             <Box sx={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+                {fileExists ? (
                 <div
                     ref={waveformRef}
                     style={{
@@ -210,7 +249,11 @@ const Waveform = ({
                         height: isMainTrack ? '100px' : '80px',
                         overflow: 'hidden',
                     }}
-                />
+                />) : (
+                    <Box sx={{ width: actualDuration, height: isMainTrack ? '100px' : '80px', overflow: 'hidden' }}>
+                        <p>File does not exist</p>
+                    </Box>
+                )}
                 {getDurationIndicator()}
             </Box>
 
