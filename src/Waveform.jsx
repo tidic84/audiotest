@@ -23,6 +23,7 @@ const Waveform = ({
     onDurationUpdate = null,
     mainTrackRef = null,
     selectedRegion = null,
+    onWavesurferReady = null,
 }) => {
     const waveformContainerRef = useRef(null);
     const waveformRef = useRef(null);
@@ -107,13 +108,12 @@ const Waveform = ({
         const handleReady = () => {
             const duration = wavesurfer.getDuration();
 
-            // if (maxDuration && duration < maxDuration) {
-            //     const ratio = duration / maxDuration;
-            //     console.log(`Track ${priseNumber}: ${duration}s/${maxDuration}s (${(ratio * 100).toFixed(1)}%)`);
-            // }
-
             if (onDurationUpdate) {
                 onDurationUpdate(priseNumber, duration);
+            }
+
+            if (onWavesurferReady) {
+                onWavesurferReady(wavesurfer);
             }
         };
 
@@ -138,21 +138,12 @@ const Waveform = ({
 
             regionsPlugin?.on('region-created', handleRegionCreate);
             regionsPlugin?.on('region-clicked', handleRegionClick);
-            // return () => {
-                // regionsPlugin?.off('region-created', handleRegionCreate);
-                // regionsPlugin?.off('region-updated', handleRegionUpdate);
-            // };
         }
 
         wavesurfer?.on('ready', handleReady);
         wavesurfer?.on('click', handleClick);
         wavesurfer?.on('interaction', handleInteraction);
 
-        // return () => {
-            // wavesurfer?.off('ready', handleReady);
-        //     wavesurfer?.off('click', handleClick);
-            // wavesurfer?.off('interaction', handleInteraction);
-        // };
     }, [wavesurfer, enableRegions, onRegionSelect, maxDuration, priseNumber, setCursorTime, setCurrentTrack, onDurationUpdate]);
 
     useEffect(() => {
@@ -166,7 +157,6 @@ const Waveform = ({
         const duration = wavesurfer?.getDuration();
         if (maxDuration && maxDuration >= duration) {
             let newDuration = mainTrackRef.current.clientWidth / maxDuration * duration;
-            // console.log(`${mainTrackRef.current.clientWidth} / ${maxDuration} * ${duration} = ${newDuration}`)
             setActualDuration(newDuration);
         }
     }
@@ -200,34 +190,6 @@ const Waveform = ({
         return minutes + ":" + (seconds < 10 ? "0" + seconds : seconds);
     };
 
-    const getDurationIndicator = () => {
-        if (!maxDuration || !actualDuration) return null;
-        // return (
-        //     <Box sx={{ position: 'absolute', top: 0, right: 8, backgroundColor: 'rgba(0,0,0,0.6)', color: 'white', px: 1, py: 0.5, borderRadius: 1, fontSize: '0.75rem', zIndex: 1 }}>
-        //         {formatTime(actualDuration)}
-        //     </Box>
-        // )
-
-        // return (
-        //     <Box 
-        //         sx={{ 
-        //             position: 'absolute', 
-        //             top: 0, 
-        //             right: 8, 
-        //             backgroundColor: 'rgba(0,0,0,0.6)', 
-        //             color: 'white', 
-        //             px: 1, 
-        //             py: 0.5, 
-        //             borderRadius: 1, 
-        //             fontSize: '0.75rem',
-        //             zIndex: 1
-        //         }}
-        //     >
-        //         {formatTime(actualDuration)} ({percentage.toFixed(0)}%)
-        //     </Box>
-        // );
-    };
-
     return (
         <Box
             ref={waveformContainerRef}
@@ -254,17 +216,7 @@ const Waveform = ({
                         <p>File does not exist</p>
                     </Box>
                 )}
-                {getDurationIndicator()}
             </Box>
-
-            {/* Boutons de contrôle pour la track principale */}
-            {/* {isMainTrack && (
-                <Box sx={{ px: 1 }}>
-                    <IconButton size="small" onClick={onPlayPause}>
-                        {isPlaying ? <PauseIcon /> : <PlayArrowIcon />}
-                    </IconButton>
-                </Box>
-            )} */}
         </Box>
     );
 };

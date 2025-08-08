@@ -65,6 +65,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
     const animationFrameRef = useRef(null);
     const isRecordingRef = useRef(false);
     const lastCursorTimeRef = useRef(0);
+    const [waveformRefs, setWaveformRefs] = useState({});
 
     const getUrl = (segment = "bytes", chapter = obs[0], paragraph = obs[1], newPrise = prise, ext = "mp3") => {
         let chapterString = chapter < 10 ? `0${chapter}` : chapter;
@@ -81,8 +82,6 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
         })
         if (response.ok) {
             const data = await response.json();
-            // console.log(data);
-            // console.log(`Data: ${data}, ipath: ${ipath} : ${data.includes(ipath)}`);
             if (data.includes(ipath)) {
                 return true;
             } else {
@@ -92,19 +91,6 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
             return false;
         }
     }
-
-    // const getFilenameByPrise = async (prise) => {
-    //     const chapterString = obs[0] < 10 ? `0${obs[0]}` : obs[0];
-    //     const paragraphString = obs[1] < 10 ? `0${obs[1]}` : obs[1];
-    //     const url = `http://localhost:19119/burrito/paths/${metadata.local_path}`
-    //     const response = await fetch(url, {
-    //         method: "GET",
-    //     })
-    //     const data = await response.json();
-    //     console.log(data);
-    //     const filename = data.find(item => item.includes(`audio_content/${chapterString}-${paragraphString}/${chapterString}-${paragraphString}_${prise}`));
-    //     return filename;
-    // }
 
     const listPrises = async (chapter, paragraph) => {
         const url = `http://localhost:19119/burrito/paths/${metadata.local_path}`
@@ -479,14 +465,10 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
     const handleTimeUpdate = useCallback(() => {
         if (!wavesurfer) return;
         const currentTime = wavesurfer.getCurrentTime();
-        // Throttling: ne mettre à jour que si la différence est significative
-        if (Math.abs(currentTime - lastCursorTimeRef.current) > 0.1) {
-            lastCursorTimeRef.current = currentTime;
-            setCursorTime(currentTime);
-        }
+        setCursorTime(currentTime);
     }, [wavesurfer]);
 
-    // Gestion des événements WaveSurfer
+    // Gestion des événements WaveSurfer pour la track principale
     useEffect(() => {
         if (!wavesurfer) return;
 
@@ -496,6 +478,22 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
 
         // Le hook @wavesurfer/react gère automatiquement le cleanup
     }, [wavesurfer, handleReady, handleLoading, handleTimeUpdate]);
+
+    // Gestion des événements timeupdate pour toutes les tracks secondaires
+    useEffect(() => {
+        Object.values(waveformRefs).forEach(waveformInstance => {
+            if (waveformInstance) {
+                waveformInstance.on("timeupdate", handleTimeUpdate);
+            }
+        });
+        return () => {
+            Object.values(waveformRefs).forEach(waveformInstance => {
+                if (waveformInstance) {
+                    waveformInstance.off?.("timeupdate", handleTimeUpdate);
+                }
+            });
+        };
+    }, [waveformRefs, handleTimeUpdate]);
 
     useEffect(() => {
         regionsPlugin?.enableDragSelection({
@@ -532,15 +530,6 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
             if (await fileExists(url)) {
                 setTimeout(async () => {
                     setAudioUrl(url)
-
-                    // const audioContext = new AudioContext();
-                    // const audioBuffer = await audioContext.decodeAudioData(await (await fetch(url)).blob().arrayBuffer());
-                    // const duration = audioBuffer.getChannelData(0).length / audioBuffer.sampleRate;
-                    // console.log(duration);
-                    // if (duration > maxDuration) {
-                    //     setMaxDuration(duration);
-                    // }
-
                 }, audioUrl != "" ? 200 : 0);
             } else {
                 setTimeout(() => {
@@ -581,11 +570,8 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
     };
 
     const handleRegionSelect = (regionData) => {
-        // console.log('Région sélectionnée:', regionData);
         const oldRegion = selectedRegion[0];
-        // console.log(`oldRegion: ${selectedRegion}`);
         oldRegion?.remove();
-        // console.log(`regionData: ${regionData}`);
         setSelectedRegion(regionData);
     };
 
@@ -611,18 +597,12 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
 
     const cutRegion = async (regionData) => {
         const url = getUrl();
-
-
         const audioContext = new AudioContext();
-
         try {
             const response1 = await fetch(url);
-
             if (response1.ok) {
                 const buffer = await audioContext.decodeAudioData(await (await response1.blob()).arrayBuffer());
-
                 const sampleRate = buffer.sampleRate;
-
                 // Débyt del'audio A
                 const segmentA1 = buffer.getChannelData(0).slice(
                     0, regionData[0].start * sampleRate
@@ -668,21 +648,41 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
 
     const editAudio = async (oldName, newName) => {
         newName = "test1"
-        /// *`POST /ingredient/copy/<repo_path>?src_path=<src_path>&target_path=<target_path>&delete_src`*
-        ///
-        /// Typically mounted as **`/burrito/copy/<repo_path>?src_path=<src_path>&target_path=<target_path>&delete_src`**
-        ///
-        /// Copies an ingredient to a new location deleting the source.
         const chapterString = obs[0] < 10 ? `0${obs[0]}` : obs[0];
         const paragraphString = obs[1] < 10 ? `0${obs[1]}` : obs[1];
         newName = newName.trim().replaceAll("_", "-").replaceAll(" ", "-").replaceAll("/", "-").replaceAll("\\", "-");
-
+        if ( oldName.split("_")[1] == newName) {
+            return;
+        }
+        
         const srcPath = `audio_content/${chapterString}-${paragraphString}/${chapterString}-${paragraphString}_${oldName}.mp3`;
         const targetPath = `audio_content/${chapterString}-${paragraphString}/${chapterString}-${paragraphString}_${oldName.split("_")[0]}_${newName}.mp3`;
         let url = `http://localhost:19119/burrito/ingredient/copy/${metadata.local_path}?src_path=${srcPath}&target_path=${targetPath}&delete_src=true`;
         fetch(url, {
             method: "POST",
         });
+    }
+
+    const deleteAudio = async (priseNumber) => {
+        const url = getUrl("delete", obs[0], obs[1], priseNumber);
+        fetch(url, {
+            method: "POST",
+        });
+    }
+
+    const playAudio = async (priseNumber) => {
+        const targetWavesurfer = waveformRefs[priseNumber];
+            if (targetWavesurfer) {
+            Object.entries(waveformRefs).forEach(([prise, wavesurfer]) => {
+                if (prise !== priseNumber && wavesurfer.isPlaying()) {
+                    wavesurfer.pause();
+                }
+            });
+            targetWavesurfer.playPause();
+        } else {
+            console.warn(`Waveform pour la prise ${priseNumber} non trouvé`);
+        }
+
     }
 
     const updateOtherPrises = async () => {
@@ -712,7 +712,6 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
             const url1 = getUrl("bytes", obs[0], obs[1], 1);
             const priseExists = await fileExists(url0);
             const prise1Exists = await fileExists(url1);
-            // console.log(`Prise 0: ${priseExists}, Prise 1: ${prise1Exists}`);
             if (!prise1Exists) return;
             if (!priseExists) {
                 const newFile = await fetch(url1);
@@ -982,10 +981,12 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                         {otherPrises.map((priseNumber, index) => (
                             priseNumber !== "0" && (
                                 <Box key={`${obs[0]}-${obs[1]}-${priseNumber}-${index}`} sx={{ mb: -1.2 }} className={`audio-waveform ${isLoading ? 'loading' : 'loaded'}`}>
-                                    {/* <Box sx={{ fontSize: 11, color: 'rgb(120, 120, 120)', mb: 0.5 }}>
+                                    <Box sx={{ fontSize: 11, color: 'rgb(120, 120, 120)', mb: 0.5 }}>
                                         Track {priseNumber.split("_")[0]} {priseNumber.split("_")[1] ? `- ${priseNumber.split("_")[1]}` : ""}
                                         <IconButton onClick={() => editAudio(priseNumber)} sx={{}}> <EditIcon /> </IconButton>
-                                    </Box> */}
+                                        <IconButton onClick={() => deleteAudio(priseNumber)} sx={{ color: 'rgb(120, 120, 120)' }}> <DeleteIcon /> </IconButton>
+                                        <IconButton onClick={() => playAudio(priseNumber)} sx={{ color: 'rgb(120, 120, 120)' }}> <PlayArrowIcon /> </IconButton>
+                                    </Box>
                                     <Waveform
                                         priseNumber={priseNumber}
                                         obs={obs}
@@ -1002,6 +1003,12 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                                         mainTrackRef={waveformRef}
                                         setMaxDuration={setMaxDuration}
                                         selectedRegion={selectedRegion}
+                                        onWavesurferReady={(wavesurfer) => {
+                                            setWaveformRefs(prev => ({
+                                                ...prev, 
+                                                [priseNumber]: wavesurfer
+                                            }));
+                                        }}
                                     />
                                 </Box>
                             )
