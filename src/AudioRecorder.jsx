@@ -13,12 +13,15 @@ import Box from '@mui/material/Box';
 import Divider from '@mui/material/Divider';
 import IconButton from '@mui/material/IconButton';
 import Stack from '@mui/material/Stack';
+import TextField from '@mui/material/TextField';
 import { useWavesurfer } from '@wavesurfer/react'
 import RegionsPlugin from 'wavesurfer.js/dist/plugins/regions.esm.js'
 import RecordPlugin from 'wavesurfer.js/dist/plugins/record.esm.js'
 import TimelinePlugin from 'wavesurfer.js/dist/plugins/timeline.esm.js'
 import Tooltip from '@mui/material/Tooltip';
 import Waveform from './Waveform';
+import CheckIcon from '@mui/icons-material/Check';
+import CloseIcon from '@mui/icons-material/Close';
 
 import {
     postJson,
@@ -66,6 +69,8 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
     const lastCursorTimeRef = useRef(0);
     const [waveformRefs, setWaveformRefs] = useState({});
     const [secondaryIsPlaying, setSecondaryIsPlaying] = useState({});
+    const [editingPrise, setEditingPrise] = useState(null);
+    const [editingName, setEditingName] = useState('');
 
     // Grille de timeline et snap
     const [gridSeconds, setGridSeconds] = useState(0.1);
@@ -742,11 +747,15 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
     }
 
     const editAudio = async (oldName, newName) => {
-        newName = "test1"
         const chapterString = obs[0] < 10 ? `0${obs[0]}` : obs[0];
         const paragraphString = obs[1] < 10 ? `0${obs[1]}` : obs[1];
-        newName = newName.trim().replaceAll("_", "-").replaceAll(" ", "-").replaceAll("/", "-").replaceAll("\\", "-");
-        if ( oldName.split("_")[1] == newName) {
+        newName = (newName || '')
+            .trim()
+            .replaceAll("_", "-")
+            .replaceAll(" ", "-")
+            .replaceAll("/", "-")
+            .replaceAll("\\", "-");
+        if ((oldName.split("_")[1] || '') === newName || newName.length === 0) {
             return;
         }
         
@@ -766,6 +775,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
             const { [oldName]: oldWs, ...rest } = prev || {};
             return oldWs ? { ...rest, [newPriseKey]: oldWs } : prev;
         });
+        setEditingPrise(null);
     }
 
     const deleteAudio = async (priseNumber) => {
@@ -1106,11 +1116,64 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                         {otherPrises.map((priseNumber, index) => (
                             priseNumber !== "0" && (
                                 <Box key={`${obs[0]}-${obs[1]}-${priseNumber}-${index}`} sx={{ mb: -1.2 }} className={`audio-waveform ${isLoading ? 'loading' : 'loaded'}`}>
-                                    <Box sx={{ fontSize: 11, color: 'rgb(120, 120, 120)', mb: 0.5 }}>
-                                        Track {priseNumber.split("_")[0]} {priseNumber.split("_")[1] ? `- ${priseNumber.split("_")[1]}` : ""}
-                                        <IconButton onClick={() => editAudio(priseNumber)} sx={{}}> <EditIcon /> </IconButton>
-                                        <IconButton onClick={() => deleteAudio(priseNumber)} sx={{ color: 'rgb(120, 120, 120)' }}> <DeleteIcon /> </IconButton>
-                                        <IconButton onClick={() => playAudio(priseNumber)} sx={{ color: 'rgb(120, 120, 120)' }}> {secondaryIsPlaying[priseNumber] ? <PauseIcon /> : <PlayArrowIcon />} </IconButton>
+                                    <Box sx={{ fontSize: 11, color: 'rgb(120, 120, 120)', mb: 0.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+                                        {editingPrise === priseNumber ? (
+                                            <>
+                                                <Box sx={{ fontSize: 11, color: 'rgb(120, 120, 120)' }}>
+                                                    Track {priseNumber.split("_")[0]} -
+                                                </Box>
+                                                <TextField
+                                                    size="small"
+                                                    value={editingName}
+                                                    autoFocus
+                                                    onChange={(e) => setEditingName(e.target.value)}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter') {
+                                                            if (editingName?.trim()) editAudio(priseNumber, editingName);
+                                                        } else if (e.key === 'Escape') {
+                                                            setEditingPrise(null);
+                                                        }
+                                                    }}
+                                                    placeholder="Nom de la piste"
+                                                    sx={{ maxWidth: 240, backgroundColor: 'white' }}
+                                                />
+                                                <IconButton
+                                                    aria-label="Valider le renommage"
+                                                    size="small"
+                                                    onClick={() => editingName?.trim() && editAudio(priseNumber, editingName)}
+                                                    disabled={!editingName?.trim()}
+                                                    sx={{ color: 'rgb(63, 167, 53)' }}
+                                                >
+                                                    <CheckIcon fontSize="small" />
+                                                </IconButton>
+                                                <IconButton
+                                                    aria-label="Annuler le renommage"
+                                                    size="small"
+                                                    onClick={() => setEditingPrise(null)}
+                                                    sx={{ color: 'rgb(168, 85, 85)' }}
+                                                >
+                                                    <CloseIcon fontSize="small" />
+                                                </IconButton>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Box sx={{ mr: 1 }}>
+                                                    Track {priseNumber.split("_")[0]} {priseNumber.split("_")[1] ? `- ${priseNumber.split("_")[1]}` : ""}
+                                                </Box>
+                                                <IconButton
+                                                    aria-label="Renommer la piste"
+                                                    onClick={() => {
+                                                        setEditingPrise(priseNumber);
+                                                        setEditingName(priseNumber.split('_')[1] || '');
+                                                    }}
+                                                    sx={{}}
+                                                >
+                                                    <EditIcon />
+                                                </IconButton>
+                                                <IconButton aria-label={`Supprimer la piste ${priseNumber}`} onClick={() => deleteAudio(priseNumber)} sx={{ color: 'rgb(120, 120, 120)' }}> <DeleteIcon /> </IconButton>
+                                                <IconButton aria-label={`Lire la piste ${priseNumber}`} onClick={() => playAudio(priseNumber)} sx={{ color: 'rgb(120, 120, 120)' }}> {secondaryIsPlaying[priseNumber] ? <PauseIcon /> : <PlayArrowIcon />} </IconButton>
+                                            </>
+                                        )}
                                     </Box>
                                     <Waveform
                                         priseNumber={priseNumber}
