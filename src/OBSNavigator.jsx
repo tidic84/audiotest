@@ -3,7 +3,7 @@ import FastRewindIcon from '@mui/icons-material/FastRewind';
 import FastForwardIcon from '@mui/icons-material/FastForward';
 import ArrowRight from '@mui/icons-material/ArrowRight';
 import ArrowLeft from '@mui/icons-material/ArrowLeft';
-import { Box, IconButton, InputLabel } from "@mui/material";
+import { Box, IconButton } from "@mui/material";
 import { useState } from "react";
 import { ButtonGroup } from '@mui/material';
 
@@ -28,9 +28,6 @@ function OBSNavigator({max, setObs, obs}) {
                     borderColor: '#1976d2',
                     boxShadow: '0 0 0 2px rgba(25, 118, 210, 0.2)',
                 }
-            },
-            InputLabel: {
-                shrink: true,
             }
         }
     }
