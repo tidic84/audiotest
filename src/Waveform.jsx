@@ -160,11 +160,16 @@ const Waveform = ({
     }, [wavesurfer, enableRegions, onRegionSelect, maxDuration, priseNumber, setCursorTime, setCurrentTrack, onDurationUpdate]);
 
     useEffect(() => {
-        regionsPlugin?.enableDragSelection({
-            drag: true,
-            color: 'rgba(0, 0, 0, 0.2)',
-        }, 1);
-    }, []);
+        if (!enableRegions || !regionsPlugin || !wavesurfer) return;
+        try {
+            regionsPlugin.enableDragSelection({
+                drag: true,
+                color: 'rgba(0, 0, 0, 0.2)'
+            });
+        } catch (e) {
+            // noop
+        }
+    }, [enableRegions, regionsPlugin, wavesurfer]);
 
     const updateActualDuration = () => {
         const duration = wavesurfer?.getDuration();
@@ -179,12 +184,24 @@ const Waveform = ({
     }, [maxDuration, mainTrackRef]);
 
     useEffect(() => {
-        regionsPlugin.getRegions().forEach(region => { 
-            if(selectedRegion[0] != region) {
+        if (!selectedRegion || selectedRegion.length === 0) return;
+        const [, selectedPrise] = selectedRegion;
+        // Si la sélection vient de cette piste, on garde uniquement la région sélectionnée
+        if (selectedPrise === priseNumber) {
+            regionsPlugin.getRegions().forEach(region => {
+                if (selectedRegion[0] !== region) {
+                    region.remove();
+                }
+            });
+            return;
+        }
+        // Si la sélection vient de la piste principale, on supprime toutes les régions de cette piste secondaire
+        if (selectedPrise === "0") {
+            regionsPlugin.getRegions().forEach(region => {
                 region.remove();
-            }
-        });
-    }, [selectedRegion])
+            });
+        }
+    }, [selectedRegion, regionsPlugin, priseNumber])
 
     // Décorrélation temporelle: on ne force plus le setTime des pistes secondaires depuis le curseur global
 

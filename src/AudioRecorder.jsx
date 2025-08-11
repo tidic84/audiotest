@@ -809,12 +809,16 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
     }, [maxDuration, cursorTime])
 
     useEffect(() => {
+        if (!selectedRegion || selectedRegion.length === 0) return;
+        // Ne nettoyer que lorsque la région sélectionnée appartient à la piste principale
+        const [, selectedPrise] = selectedRegion;
+        if (selectedPrise !== "0") return;
         regionsPlugin.getRegions().forEach(region => {
-            if (selectedRegion[0] != region) {
+            if (selectedRegion[0] !== region) {
                 region.remove();
             }
         });
-    }, [selectedRegion])
+    }, [selectedRegion, regionsPlugin])
 
     useEffect(() => {
         const handleKey = (event) => {
