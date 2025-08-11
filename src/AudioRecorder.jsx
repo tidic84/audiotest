@@ -641,8 +641,16 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
     };
 
     const handleRegionSelect = (regionData) => {
-        const oldRegion = selectedRegion[0];
-        oldRegion?.remove();
+        const newRegion = regionData?.[0];
+        const oldRegion = selectedRegion?.[0];
+        // Ne pas supprimer la région si c'est la même (cas d'update/resize sur piste secondaire)
+        if (oldRegion && oldRegion !== newRegion) {
+            try {
+                oldRegion.remove();
+            } catch (e) {
+                // noop
+            }
+        }
         setSelectedRegion(regionData);
     };
 
@@ -867,7 +875,6 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
 
     useEffect(() => {
         if (!selectedRegion || selectedRegion.length === 0) return;
-        // Ne nettoyer que lorsque la région sélectionnée appartient à la piste principale
         const [, selectedPrise] = selectedRegion;
         if (selectedPrise !== "0") return;
         regionsPlugin.getRegions().forEach(region => {
