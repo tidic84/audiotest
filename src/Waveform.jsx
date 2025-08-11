@@ -120,9 +120,10 @@ const Waveform = ({
         };
 
         const handleClick = () => {
-            if (isMainTrack) {
-                setCursorTime(wavesurfer.getCurrentTime());
-            }
+            const time = wavesurfer.getCurrentTime();
+            const snapped = Math.round(time / 0.1) * 0.1;
+            // Pour les pistes secondaires: ne pas toucher au curseur global, juste caler localement
+            wavesurfer.setTime(snapped);
         };
 
         const handleInteraction = () => {
