@@ -907,6 +907,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
 
     useEffect(() => {
         const handleKey = (event) => {
+            if(editingPrise) return;
             if (selectedRegion[1] == "0") {
                 if (event.key === 'Backspace') {
                     cutRegion(selectedRegion);
