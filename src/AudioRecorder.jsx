@@ -859,6 +859,8 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
         return () => window.removeEventListener('keydown', handleKey);
     })
 
+    const hasAnyTrack = !!audioUrl || (otherPrises?.length > 0);
+
     return (
         <Box sx={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden' }}>
             <Stack sx={{ position: 'relative', mt: 5, backgroundColor: "rgb(224, 224, 224)", borderRadius: 1, boxShadow: 1, width: '100%', height: 'auto', overflow: 'visible' }}>
@@ -948,7 +950,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                     <Box sx={{ fontSize: 12, fontWeight: 600, mb: 1, color: 'rgb(45, 188, 255)' }}>
                         MAIN TRACK - {prise.split("_")[0]} {prise.split("_")[1] ? `- ${prise.split("_")[1]}` : ""}
                     </Box>
-                    {isRecording ? (
+                    {isRecording && !hasAnyTrack ? (
                         <Box sx={{
                             width: '100%',
                             height: '100px',
@@ -1081,33 +1083,48 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                                 </Box>
                             )
                         ))}
-                        {/* Piste vide (affichée uniquement hors enregistrement) */}
-                        {!isRecording && (
+                        {/* Piste vide / visualisateur en bas: visuel si des pistes existent, sinon message */}
+                        {(!isRecording || hasAnyTrack) && (
                             <Box sx={{ mb: -1.2 }} className={`audio-waveform ${isLoading ? 'loading' : 'loaded'}`}>
                                 <Box sx={{
                                     display: 'flex',
                                     alignItems: 'center',
-                                    backgroundColor: 'rgb(245, 245, 245)',
+                                    backgroundColor: isRecording && hasAnyTrack ? 'rgb(255, 240, 240)' : 'rgb(245, 245, 245)',
                                     mb: 1,
                                     borderRadius: 1,
                                     position: 'relative',
-                                    border: '1px dashed rgb(200, 200, 200)',
+                                    border: isRecording && hasAnyTrack ? '2px solid rgb(255, 107, 107)' : '1px dashed rgb(200, 200, 200)',
                                     minHeight: '82px'
                                 }}>
                                     <Box sx={{ flex: 1, position: 'relative', overflow: 'hidden', p: 1 }}>
-                                        <Box sx={{ fontSize: 11, color: 'rgb(120, 120, 120)', mb: 0.5 }}>
-                                            {`Piste vide - Prochaine prise ${nextPriseNumber || '...'}`}
+                                        <Box sx={{ fontSize: 11, color: isRecording && hasAnyTrack ? 'rgb(255, 107, 107)' : 'rgb(120, 120, 120)', mb: 0.5 }}>
+                                            {isRecording && hasAnyTrack
+                                                ? `Enregistrement en cours - Prise ${nextPriseNumber}`
+                                                : `Piste vide - Prochaine prise ${nextPriseNumber || '...'}`}
                                         </Box>
-                                        <Box sx={{
-                                            height: '60px',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            color: 'rgb(120, 120, 120)',
-                                            fontStyle: 'italic'
-                                        }}>
-                                            Cliquez sur enregistrer pour commencer
-                                        </Box>
+                                        {isRecording && hasAnyTrack ? (
+                                            <canvas
+                                                ref={recordingCanvasRef}
+                                                width={800}
+                                                height={60}
+                                                style={{
+                                                    width: '100%',
+                                                    height: '60px',
+                                                    overflow: 'hidden',
+                                                }}
+                                            />
+                                        ) : (
+                                            <Box sx={{
+                                                height: '60px',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                color: 'rgb(120, 120, 120)',
+                                                fontStyle: 'italic'
+                                            }}>
+                                                Cliquez sur enregistrer pour commencer
+                                            </Box>
+                                        )}
                                     </Box>
                                 </Box>
                             </Box>
