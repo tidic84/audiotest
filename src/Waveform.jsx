@@ -43,49 +43,60 @@ const Waveform = ({
       })
       , []);
     const plugins = useMemo(() => [regionsPlugin], [regionsPlugin]);
+    const [cacheBust, setCacheBust] = useState(Date.now());
     const [actualDuration, setActualDuration] = useState(0);
     const [fileExists, setFileExists] = useState(false);
     const [audioUrl, setAudioUrl] = useState(null);
 
-    const checkFileExists = async (audioUrl) => {
-        const url = `http://localhost:19119/burrito/paths/${metadata.local_path}`
-        const ipath = audioUrl.split("?ipath=")[1];
-        try {
-            const response = await fetch(url, {
-                method: "GET",
-            })
-            if (response.ok) {
-                const data = await response.json();
-                return data.includes(ipath);
-            } else {
-                return false;
-            }
-        } catch (error) {
-            console.warn(`Error checking file existence for ${audioUrl}:`, error);
-            return false;
-        }
-    }
+  const checkFileExists = async (audioUrl) => {
+      try {
+          const resp = await fetch(audioUrl, { method: 'GET', cache: 'no-store' });
+          return resp.ok;
+      } catch (error) {
+          return false;
+      }
+  }
 
     useEffect(() => {
 
 
-        const checkAndSetUrl = async () => {
-            const url = getUrl();
-            const exists = await checkFileExists(url);
-            setFileExists(exists);
-            if (exists) {
-                setAudioUrl(url);
-            } else {
-                setAudioUrl(null);
-            }
-        };
-        checkAndSetUrl();
+      const checkAndSetUrl = async () => {
+          const url = getUrl();
+          const exists = await checkFileExists(url);
+          setFileExists(exists);
+          if (exists) {
+              setAudioUrl(url);
+              return true;
+          } else {
+              setAudioUrl(null);
+              return false;
+          }
+      };
+      // Essai initial
+      let cancelled = false;
+      let attempts = 0;
+      const maxAttempts = 30; // ~9s si interval 300ms
+      const intervalMs = 300;
+
+      const tryLoad = async () => {
+          const ok = await checkAndSetUrl();
+          if (cancelled) return;
+          if (ok) return; // trouvé
+          attempts += 1;
+          if (attempts < maxAttempts) {
+              setCacheBust(Date.now());
+              setTimeout(tryLoad, intervalMs);
+          }
+      };
+
+      tryLoad();
+      return () => { cancelled = true };
     }, [priseNumber, obs, metadata]);
 
     const getUrl = (segment = "bytes", chapter = obs[0], paragraph = obs[1], prise = priseNumber) => {
         let chapterString = chapter < 10 ? `0${chapter}` : chapter;
         let paragraphString = paragraph < 10 ? `0${paragraph}` : paragraph;
-        let url = `http://localhost:19119/burrito/ingredient/${segment}/${metadata.local_path}?ipath=audio_content/${chapterString}-${paragraphString}/${chapterString}-${paragraphString}_${prise}.mp3`
+        let url = `http://localhost:19119/burrito/ingredient/${segment}/${metadata.local_path}?ipath=audio_content/${chapterString}-${paragraphString}/${chapterString}-${paragraphString}_${prise}.mp3&_v=${cacheBust}`
         return url
     }
 
@@ -173,9 +184,16 @@ const Waveform = ({
 
     const updateActualDuration = () => {
         const duration = wavesurfer?.getDuration();
-        if (maxDuration && maxDuration >= duration) {
-            let newDuration = mainTrackRef.current.clientWidth / maxDuration * duration;
+        if (maxDuration && duration && maxDuration >= duration) {
+            const mainWidth = mainTrackRef?.current?.clientWidth || 0;
+            const newDuration = mainWidth ? (mainWidth / maxDuration) * duration : 0;
             setActualDuration(newDuration);
+            return;
+        }
+        // Fallback: occuper la largeur de la piste principale tant que maxDuration n'est pas calculé
+        const fallbackWidth = mainTrackRef?.current?.clientWidth;
+        if (fallbackWidth) {
+            setActualDuration(fallbackWidth);
         }
     }
 
@@ -229,7 +247,7 @@ const Waveform = ({
             }}>
             <Box sx={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
                 {fileExists ? (
-                <Box sx={{ position: 'relative', width: actualDuration, height: isMainTrack ? '100px' : '80px', overflow: 'hidden' }}>
+                <Box sx={{ position: 'relative', width: actualDuration || (mainTrackRef?.current?.clientWidth || '100%'), height: isMainTrack ? '100px' : '80px', overflow: 'hidden' }}>
                     {gridPx > 0 && (
                         <Box
                             aria-hidden
