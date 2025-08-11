@@ -445,6 +445,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
         barRadius: 2,
         cursorWidth: 1,
         cursorColor: 'rgb(197, 34, 34)',
+        interact: false,
     })
 
     // Fonction pour adapter la largeur visuelle de la piste principale en fonction de la durée max
@@ -550,17 +551,23 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
         updateCursorTime(now, { force: true });
     }, [wavesurfer, updateCursorTime]);
 
-    // Snap au clic sur la piste principale
-    useEffect(() => {
-        if (!wavesurfer) return;
-        const handleClick = () => {
-            updateCursorTime(wavesurfer.getCurrentTime());
-        };
-        wavesurfer.on('click', handleClick);
-        return () => {
-            wavesurfer.off?.('click', handleClick);
-        };
-    }, [wavesurfer, updateCursorTime]);
+    // Gestion du clic sur la piste principale: positionne directement sur la grille sans étape intermédiaire
+    const handleMainWaveformClick = useCallback((e) => {
+        if (!wavesurfer || !waveformRef.current) return;
+        const rect = waveformRef.current.getBoundingClientRect();
+        const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width || 0));
+        const baseDuration = effectiveDuration || wavesurfer.getDuration?.() || 0;
+        if (!baseDuration || !rect.width) return;
+        const rawTime = (x / rect.width) * baseDuration;
+        const targetTime = (snapEnabled ? snapToGrid(rawTime) : rawTime);
+        // Mise à jour immédiate du curseur et du wavesurfer pour éviter tout effet visuel en deux temps
+        updateCursorTime(targetTime);
+        try {
+            wavesurfer.setTime(targetTime);
+        } catch (_) {
+            // noop
+        }
+    }, [wavesurfer, waveformRef, effectiveDuration, snapEnabled, snapToGrid, updateCursorTime]);
 
     // Gestion des événements WaveSurfer pour la track principale
     useEffect(() => {
@@ -1069,6 +1076,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                             )}
                             <div
                                 ref={waveformRef}
+                                onClick={handleMainWaveformClick}
                                 className={`audio-waveform ${isLoading ? 'loading' : 'loaded'}`}
                                 style={{ width: '100%', height: '100%', overflow: 'hidden', position: 'relative', zIndex: 1 }}
                             />
