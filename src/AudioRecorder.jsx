@@ -447,6 +447,16 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
         cursorWidth: 0,
     })
 
+    // Fonction pour adapter la largeur visuelle de la piste principale en fonction de la durée max
+    const updateMainTrackWidth = useCallback((duration, newMaxDuration = maxDuration) => {
+        if (!waveformRef.current || !wavesurfer) return;
+        if (!duration) duration = wavesurfer.getDuration();
+        if (!duration || !newMaxDuration) return;
+        wavesurfer.setOptions({
+            width: (waveformRef.current.clientWidth / newMaxDuration) * duration,
+        })
+    }, [wavesurfer, maxDuration]);
+
     useEffect(() => {
         if (!waveformRef.current) return;
         const observer = new ResizeObserver((entries) => {
@@ -459,6 +469,12 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
         setWaveformWidth(waveformRef.current.clientWidth);
         return () => observer.disconnect();
     }, [waveformRef]);
+
+    // Adapter dynamiquement la largeur de la waveform principale lors d'un resize du conteneur
+    useEffect(() => {
+        if (!wavesurfer || !waveformRef.current) return;
+        updateMainTrackWidth(undefined, maxDuration);
+    }, [waveformWidth, maxDuration, wavesurfer, updateMainTrackWidth]);
 
     const effectiveDuration = useMemo(() => {
         const dur = wavesurfer?.getDuration?.();
@@ -500,14 +516,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
         })
     }
 
-    const updateMainTrackWidth = useCallback((duration, newMaxDuration = maxDuration) => {
-        if (!waveformRef.current || !wavesurfer) return;
-        if (!duration) duration = wavesurfer.getDuration();
-        if (!duration || !newMaxDuration) return;
-        wavesurfer.setOptions({
-            width: waveformRef.current.clientWidth / newMaxDuration * duration,
-        })
-    }, [wavesurfer, maxDuration]);
+    
 
     // Créer les handlers avec useCallback pour éviter les re-créations
     const handleReady = useCallback(() => {
@@ -1144,6 +1153,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                                             ws.on('pause', () => setSecondaryIsPlaying(prev => ({ ...prev, [priseNumber]: false })));
                                             ws.on('finish', () => setSecondaryIsPlaying(prev => ({ ...prev, [priseNumber]: false })));
                                         }}
+                                        containerWidth={waveformWidth}
                                     />
                                 </Box>
                             )

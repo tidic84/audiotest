@@ -26,6 +26,7 @@ const Waveform = ({
     onWavesurferReady = null,
     gridPx,
     majorGridPx,
+    containerWidth,
 }) => {
     const waveformContainerRef = useRef(null);
     const waveformRef = useRef(null);
@@ -201,6 +202,18 @@ const Waveform = ({
     useEffect(() => {
         updateActualDuration();
     }, [maxDuration, mainTrackRef]);
+
+    // Redimensionner la waveform secondaire quand le conteneur principal change de taille
+    useEffect(() => {
+        if (!wavesurfer) return;
+        // recalcul local de la largeur visuelle pour caler l'échelle
+        updateActualDuration();
+        try {
+            wavesurfer.setOptions({ width: undefined });
+        } catch (_) {
+            // noop
+        }
+    }, [containerWidth, wavesurfer]);
 
     useEffect(() => {
         if (!selectedRegion || selectedRegion.length === 0) return;
