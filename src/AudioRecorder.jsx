@@ -490,6 +490,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
 
     const snapToGrid = useCallback((time) => {
         if (!gridSeconds || gridSeconds <= 0) return time;
+        console.log( time, Math.round(time / gridSeconds) * gridSeconds);
         return Math.round(time / gridSeconds) * gridSeconds;
     }, [gridSeconds]);
 
@@ -953,30 +954,8 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                 </Box>
                 <Divider />
 
-                {/* Conteneur des pistes + overlay de grille */}
+                {/* Conteneur des pistes */}
                 <Box ref={tracksContainerRef} sx={{ position: 'relative'}}>
-                    {/* Fond grille timeline */}
-                    {gridPx > 0 && (
-                        <Box
-                            aria-hidden
-                            sx={{
-                                position: 'absolute',
-                                top: 0,
-                                bottom: 0,
-                                left: 8,
-                                right: 8,
-                                zIndex: 2,
-                                pointerEvents: 'none',
-                                backgroundImage: majorGridPx
-                                    ? 'linear-gradient(to right, rgba(0,0,0,0.08) 1px, transparent 1px), linear-gradient(to right, rgba(0,0,0,0.15) 1px, transparent 1px)'
-                                    : 'linear-gradient(to right, rgba(0,0,0,0.08) 1px, transparent 1px)',
-                                backgroundSize: majorGridPx
-                                    ? `${gridPx}px 100%, ${majorGridPx}px 100%`
-                                    : `${gridPx}px 100%`,
-                                backgroundRepeat: 'repeat',
-                            }}
-                        />
-                    )}
 
                     {/* Curseur multi track */}
                     {showOtherTracks && (
@@ -1028,11 +1007,32 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                             />
                         </Box>
                     ) : audioUrl ? (
-                        <div
-                            ref={waveformRef}
-                            className={`audio-waveform ${isLoading ? 'loading' : 'loaded'}`}
-                            style={{ width: '100%', height: '100px', marginBottom: '', overflow: 'hidden' }}
-                        />
+                        <Box sx={{ position: 'relative', width: '100%', height: '100px' }}>
+                            {/* Grille uniquement derrière la waveform principale */}
+                            {gridPx > 0 && (
+                                <Box
+                                    aria-hidden
+                                    sx={{
+                                        position: 'absolute',
+                                        inset: 0,
+                                        zIndex: 0,
+                                        pointerEvents: 'none',
+                                        backgroundImage: majorGridPx
+                                            ? 'linear-gradient(to right, rgba(0,0,0,0.08) 1px, transparent 1px), linear-gradient(to right, rgba(0,0,0,0.15) 1px, transparent 1px)'
+                                            : 'linear-gradient(to right, rgba(0,0,0,0.08) 1px, transparent 1px)',
+                                        backgroundSize: majorGridPx
+                                            ? `${gridPx}px 100%, ${majorGridPx}px 100%`
+                                            : `${gridPx}px 100%`,
+                                        backgroundRepeat: 'repeat',
+                                    }}
+                                />
+                            )}
+                            <div
+                                ref={waveformRef}
+                                className={`audio-waveform ${isLoading ? 'loading' : 'loaded'}`}
+                                style={{ width: '100%', height: '100%', overflow: 'hidden', position: 'relative', zIndex: 1 }}
+                            />
+                        </Box>
                     ) : (
                         <Box sx={{
                             width: '100%',
@@ -1079,6 +1079,8 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                                         isMainTrack={false}
                                         mainTrackRef={waveformRef}
                                         setMaxDuration={setMaxDuration}
+                                        gridPx={gridPx}
+                                        majorGridPx={majorGridPx}
                                         selectedRegion={selectedRegion}
                                         onWavesurferReady={(wavesurfer) => {
                                             setWaveformRefs(prev => ({

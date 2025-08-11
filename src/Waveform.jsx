@@ -24,6 +24,8 @@ const Waveform = ({
     mainTrackRef = null,
     selectedRegion = null,
     onWavesurferReady = null,
+    gridPx,
+    majorGridPx,
 }) => {
     const waveformContainerRef = useRef(null);
     const waveformRef = useRef(null);
@@ -204,14 +206,36 @@ const Waveform = ({
             }}>
             <Box sx={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
                 {fileExists ? (
-                <div
-                    ref={waveformRef}
-                    style={{
-                        width: actualDuration,
-                        height: isMainTrack ? '100px' : '80px',
-                        overflow: 'hidden',
-                    }}
-                />) : (
+                <Box sx={{ position: 'relative', width: actualDuration, height: isMainTrack ? '100px' : '80px', overflow: 'hidden' }}>
+                    {gridPx > 0 && (
+                        <Box
+                            aria-hidden
+                            sx={{
+                                position: 'absolute',
+                                inset: 0,
+                                zIndex: 0,
+                                pointerEvents: 'none',
+                                backgroundImage: majorGridPx
+                                    ? 'linear-gradient(to right, rgba(0,0,0,0.08) 1px, transparent 1px), linear-gradient(to right, rgba(0,0,0,0.15) 1px, transparent 1px)'
+                                    : 'linear-gradient(to right, rgba(0,0,0,0.08) 1px, transparent 1px)',
+                                backgroundSize: majorGridPx
+                                    ? `${gridPx}px 100%, ${majorGridPx}px 100%`
+                                    : `${gridPx}px 100%`,
+                                backgroundRepeat: 'repeat',
+                            }}
+                        />
+                    )}
+                    <div
+                        ref={waveformRef}
+                        style={{
+                            width: '100%',
+                            height: '100%',
+                            overflow: 'hidden',
+                            position: 'relative',
+                            zIndex: 1,
+                        }}
+                    />
+                </Box>) : (
                     <Box sx={{ width: actualDuration, height: isMainTrack ? '100px' : '80px', overflow: 'hidden' }}>
                         <p>File does not exist</p>
                     </Box>
