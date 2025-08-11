@@ -111,6 +111,7 @@ const Waveform = ({
         barGap: 1,
         barRadius: 2,
         cursorWidth: isMainTrack ? 0 : 1,
+        interact: isMainTrack,
     };
 
     const { wavesurfer, currentTime, isPlaying } = useWavesurfer(waveformConfig);
@@ -130,12 +131,7 @@ const Waveform = ({
             }
         };
 
-        const handleClick = () => {
-            const time = wavesurfer.getCurrentTime();
-            const snapped = Math.round(time / 0.1) * 0.1;
-            // Pour les pistes secondaires: ne pas toucher au curseur global, juste caler localement
-            wavesurfer.setTime(snapped);
-        };
+        const handleClick = () => {};
 
         const handleInteraction = () => {
             setCurrentTrack(priseNumber);
@@ -166,7 +162,6 @@ const Waveform = ({
         }
 
         wavesurfer?.on('ready', handleReady);
-        wavesurfer?.on('click', handleClick);
         wavesurfer?.on('interaction', handleInteraction);
 
     }, [wavesurfer, enableRegions, onRegionSelect, maxDuration, priseNumber, setCursorTime, setCurrentTrack, onDurationUpdate]);
@@ -197,6 +192,35 @@ const Waveform = ({
             setActualDuration(fallbackWidth);
         }
     }
+
+    const handleOverlayClick = (e) => {
+        if (!wavesurfer) return;
+        const rect = e.currentTarget.getBoundingClientRect();
+        const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width || 0));
+        const mainWidth = mainTrackRef?.current?.clientWidth || 0;
+        const globalDuration = (maxDuration && maxDuration > 0) ? maxDuration : (wavesurfer.getDuration?.() || 0);
+        const denom = (mainWidth && globalDuration) ? mainWidth : rect.width;
+        if (!denom || !globalDuration) return;
+        const time = (x / denom) * globalDuration;
+        const snapped = Math.round(time * 10) / 10;
+        const trackDuration = wavesurfer.getDuration?.() || 0;
+        const clamped = Math.max(0, Math.min(snapped, trackDuration || snapped));
+        // Forcer le seek sans animation pour éviter un retour visuel
+        if (typeof wavesurfer.seekTo === 'function' && (wavesurfer.getDuration?.() || 0) > 0) {
+            const frac = clamped / wavesurfer.getDuration();
+            wavesurfer.seekTo(Math.max(0, Math.min(1, frac)));
+        } else {
+            wavesurfer.setTime(clamped);
+        }
+        setCurrentTrack?.(priseNumber);
+        e.stopPropagation();
+        e.preventDefault();
+    };
+
+    const swallow = (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+    };
 
     useEffect(() => {
         updateActualDuration();
@@ -264,6 +288,19 @@ const Waveform = ({
                                     ? `${gridPx}px 100%, ${majorGridPx}px 100%`
                                     : `${gridPx}px 100%`,
                                 backgroundRepeat: 'repeat',
+                            }}
+                        />
+                    )}
+                    {!isMainTrack && (
+                        <div
+                            onMouseDown={handleOverlayClick}
+                            onMouseUp={swallow}
+                            onClick={swallow}
+                            style={{
+                                position: 'absolute',
+                                inset: 0,
+                                zIndex: 2,
+                                cursor: 'pointer',
                             }}
                         />
                     )}
