@@ -53,7 +53,6 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
     const [maxDuration, setMaxDuration] = useState(0);
     const [selectedRegion, setSelectedRegion] = useState([]);
     const [copiedRegion, setCopiedRegion] = useState(null);
-    const cursorRef = useRef(null);
     const recordingWaveformRef = useRef(null);
     const recordingCanvasRef = useRef(null);
     const [nextPriseNumber, setNextPriseNumber] = useState(null);
@@ -444,7 +443,8 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
         barWidth: 2,
         barGap: 1,
         barRadius: 2,
-        cursorWidth: 0,
+        cursorWidth: 1,
+        cursorColor: 'rgb(197, 34, 34)',
     })
 
     // Fonction pour adapter la largeur visuelle de la piste principale en fonction de la durée max
@@ -862,13 +862,8 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
 
     useEffect(() => {
         wavesurfer?.setOptions({
-            cursorWidth: showOtherTracks ? 0 : 1,
+            // cursorWidth: showOtherTracks ? 0 : 1,
         })
-        setTimeout(() => {
-            if (cursorRef.current) {
-                cursorRef.current.style.backgroundColor = 'red';
-            }
-        }, 300)
 
         checkIfPriseExists();
         updateOtherPrises();
@@ -1052,24 +1047,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                         </Box>
                     ) : audioUrl ? (
                         <Box sx={{ position: 'relative', width: '100%', height: '100px' }}>
-                            {/* Curseur multi track limité à la piste principale */}
-                            {showOtherTracks && (
-                                <span
-                                    ref={cursorRef}
-                                    style={{
-                                        position: 'absolute',
-                                        top: 0,
-                                        height: '100%',
-                                        width: '1px',
-                                        backgroundColor: 'transparent',
-                                        zIndex: 3,
-                                        pointerEvents: 'none',
-                                        left: 0,
-                                        transform: `translateX(${waveformRef.current ? ((waveformRef.current.clientWidth / (maxDuration || effectiveDuration || 1)) * (cursorTime || 0)) : 0}px)`,
-                                        transition: 'transform 0.1s',
-                                    }}
-                                />
-                            )}
+                            {/* Curseur multi track supprimé */}
                             {/* Grille uniquement derrière la waveform principale */}
                             {gridPx > 0 && (
                                 <Box
