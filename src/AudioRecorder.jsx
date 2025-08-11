@@ -67,6 +67,12 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
     const lastCursorTimeRef = useRef(0);
     const [waveformRefs, setWaveformRefs] = useState({});
 
+    // Grille de timeline et snap
+    const [gridSeconds, setGridSeconds] = useState(0.1);
+    const [snapEnabled, setSnapEnabled] = useState(true);
+    const tracksContainerRef = useRef(null);
+    const [waveformWidth, setWaveformWidth] = useState(0);
+
     const getUrl = (segment = "bytes", chapter = obs[0], paragraph = obs[1], newPrise = prise, ext = "mp3") => {
         let chapterString = chapter < 10 ? `0${chapter}` : chapter;
         let paragraphString = paragraph < 10 ? `0${paragraph}` : paragraph;
@@ -409,6 +415,32 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
         cursorWidth: 0,
     })
 
+    useEffect(() => {
+        if (!waveformRef.current) return;
+        const observer = new ResizeObserver((entries) => {
+            for (const entry of entries) {
+                setWaveformWidth(entry.contentRect.width);
+            }
+        });
+        observer.observe(waveformRef.current);
+        // init
+        setWaveformWidth(waveformRef.current.clientWidth);
+        return () => observer.disconnect();
+    }, [waveformRef]);
+
+    const effectiveDuration = useMemo(() => {
+        const dur = wavesurfer?.getDuration?.();
+        return (maxDuration && maxDuration > 0) ? maxDuration : (dur || 0);
+    }, [maxDuration, wavesurfer]);
+
+    const gridPx = useMemo(() => {
+        if (!waveformWidth || !gridSeconds) return 0;
+        const baseDuration = effectiveDuration || 1;
+        return (waveformWidth / baseDuration) * gridSeconds;
+    }, [waveformWidth, effectiveDuration, gridSeconds]);
+
+    const majorGridPx = useMemo(() => (gridPx ? gridPx * 5 : 0), [gridPx]);
+
     const onPlayPause = () => {
         if (!audioUrl) return;
         wavesurfer && wavesurfer.playPause()
@@ -421,10 +453,6 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
         fetch(deleteUrl, {
             method: "POST",
         });
-    }
-
-    const onSave = () => {
-        // A faire: Save le fichier audio
     }
 
     const onRestore = () => {
@@ -446,8 +474,6 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
         })
     }, [wavesurfer, maxDuration]);
 
-
-
     // Créer les handlers avec useCallback pour éviter les re-créations
     const handleReady = useCallback(() => {
         if (!wavesurfer) return;
@@ -462,11 +488,35 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
         setIsLoading(true);
     }, []);
 
+    const snapToGrid = useCallback((time) => {
+        if (!gridSeconds || gridSeconds <= 0) return time;
+        return Math.round(time / gridSeconds) * gridSeconds;
+    }, [gridSeconds]);
+
+    const updateCursorTime = useCallback((time, { force = false } = {}) => {
+        const base = (snapEnabled && !force) ? snapToGrid(time) : time;
+        const clamped = Math.max(0, Math.min(base, maxDuration || base));
+        setCursorTime(clamped);
+    }, [snapEnabled, snapToGrid, maxDuration]);
+
     const handleTimeUpdate = useCallback(() => {
         if (!wavesurfer) return;
-        const currentTime = wavesurfer.getCurrentTime();
-        setCursorTime(currentTime);
-    }, [wavesurfer]);
+        const now = wavesurfer.getCurrentTime();
+        // Pendant la lecture, on ne snap pas le curseur pour garder un mouvement fluide
+        updateCursorTime(now, { force: true });
+    }, [wavesurfer, updateCursorTime]);
+
+    // Snap au clic sur la piste principale
+    useEffect(() => {
+        if (!wavesurfer) return;
+        const handleClick = () => {
+            updateCursorTime(wavesurfer.getCurrentTime());
+        };
+        wavesurfer.on('click', handleClick);
+        return () => {
+            wavesurfer.off?.('click', handleClick);
+        };
+    }, [wavesurfer, updateCursorTime]);
 
     // Gestion des événements WaveSurfer pour la track principale
     useEffect(() => {
@@ -809,14 +859,10 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                 onPlayPause();
                 return;
             } else if (event.key === 'ArrowLeft') {
-                setCursorTime(cursorTime - 0.1);
+                updateCursorTime((cursorTime ?? 0) - gridSeconds);
                 return;
             } else if (event.key === 'ArrowRight') {
-                if (cursorTime + 0.1 > maxDuration) {
-                    setCursorTime(maxDuration);
-                    return;
-                }
-                setCursorTime(cursorTime + 0.1);
+                updateCursorTime((cursorTime ?? 0) + gridSeconds);
                 return;
             } else if (event.key === 'r') {
                 return isRecording ? stopRecording() : startRecording();
@@ -907,26 +953,51 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                 </Box>
                 <Divider />
 
-                {/* Curseur multi track */}
-                {showOtherTracks && (
-                    <span
-                        ref={cursorRef}
-                        style={{
-                            position: 'absolute',
-                            height: '100%',
-                            width: '1px',
-                            backgroundColor: 'transparent',
-                            zIndex: 3,
-                            pointerEvents: 'none',
-                            left: 8,
-                            transform: `translateX(${waveformRef.current ? waveformRef.current.clientWidth / maxDuration * cursorTime : 0}px)`,
-                            transition: 'transform 0.1s',
-                        }}
-                    />
-                )}
+                {/* Conteneur des pistes + overlay de grille */}
+                <Box ref={tracksContainerRef} sx={{ position: 'relative'}}>
+                    {/* Fond grille timeline */}
+                    {gridPx > 0 && (
+                        <Box
+                            aria-hidden
+                            sx={{
+                                position: 'absolute',
+                                top: 0,
+                                bottom: 0,
+                                left: 8,
+                                right: 8,
+                                zIndex: 2,
+                                pointerEvents: 'none',
+                                backgroundImage: majorGridPx
+                                    ? 'linear-gradient(to right, rgba(0,0,0,0.08) 1px, transparent 1px), linear-gradient(to right, rgba(0,0,0,0.15) 1px, transparent 1px)'
+                                    : 'linear-gradient(to right, rgba(0,0,0,0.08) 1px, transparent 1px)',
+                                backgroundSize: majorGridPx
+                                    ? `${gridPx}px 100%, ${majorGridPx}px 100%`
+                                    : `${gridPx}px 100%`,
+                                backgroundRepeat: 'repeat',
+                            }}
+                        />
+                    )}
 
-                {/* Track principale */}
-                <Box sx={{ p: 1, backgroundColor: 'rgb(245, 245, 245)', height: '100%' }}>
+                    {/* Curseur multi track */}
+                    {showOtherTracks && (
+                        <span
+                            ref={cursorRef}
+                            style={{
+                                position: 'absolute',
+                                height: '100%',
+                                width: '1px',
+                                backgroundColor: 'transparent',
+                                zIndex: 3,
+                                pointerEvents: 'none',
+                                left: 8,
+                                transform: `translateX(${waveformRef.current ? ((waveformRef.current.clientWidth / (maxDuration || effectiveDuration || 1)) * (cursorTime || 0)) : 0}px)`,
+                                transition: 'transform 0.1s',
+                            }}
+                        />
+                    )}
+
+                    {/* Track principale */}
+                    <Box sx={{ p: 1, backgroundColor: 'rgb(245, 245, 245)', height: '100%', position: 'relative', zIndex: 1 }}>
                     <Box sx={{ fontSize: 12, fontWeight: 600, mb: 1, color: 'rgb(45, 188, 255)' }}>
                         MAIN TRACK - {prise.split("_")[0]} {prise.split("_")[1] ? `- ${prise.split("_")[1]}` : ""}
                     </Box>
@@ -979,11 +1050,11 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                             Cliquez sur enregistrer pour commencer
                         </Box>
                     )}
-                </Box>
+                    </Box>
 
-                {/* Liste des autres pistes audio */}
-                {showOtherTracks && (
-                    <Box sx={{ p: 1, backgroundColor: 'rgb(235, 235, 235)', height: '100%' }}>
+                    {/* Liste des autres pistes audio */}
+                    {showOtherTracks && (
+                    <Box sx={{ p: 1, backgroundColor: 'rgb(235, 235, 235)', height: '100%', position: 'relative', zIndex: 1 }}>
                         {otherPrises.map((priseNumber, index) => (
                             priseNumber !== "0" && (
                                 <Box key={`${obs[0]}-${obs[1]}-${priseNumber}-${index}`} sx={{ mb: -1.2 }} className={`audio-waveform ${isLoading ? 'loading' : 'loaded'}`}>
@@ -997,7 +1068,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                                         priseNumber={priseNumber}
                                         obs={obs}
                                         metadata={metadata}
-                                        setCursorTime={setCursorTime}
+                                        setCursorTime={updateCursorTime}
                                         cursorTime={cursorTime}
                                         setCurrentTrack={setCurrentTrack}
                                         currentTrack={currentTrack}
@@ -1057,7 +1128,8 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                             </Box>
                         )}
                     </Box>
-                )}
+                    )}
+                </Box>
             </Stack>
         </Box>
     );
