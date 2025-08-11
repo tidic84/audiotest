@@ -1033,9 +1033,9 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                             borderRadius: 1,
                             color: 'rgb(120, 120, 120)',
                             fontStyle: 'italic',
-                            fontSize: 14
+                            fontSize: 14,
                         }}>
-                            Cliquez sur enregistrer pour commencer
+                            Click record to start
                         </Box>
                     )}
                     </Box>
@@ -1085,7 +1085,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                         ))}
                         {/* Piste vide / visualisateur en bas: visuel si des pistes existent, sinon message */}
                         {(!isRecording || hasAnyTrack) && (
-                            <Box sx={{ mb: -1.2 }} className={`audio-waveform ${isLoading ? 'loading' : 'loaded'}`}>
+                            <Box sx={{ mb: 1, mt:4 }} className={`audio-waveform ${isLoading ? 'loading' : 'loaded'}`}>
                                 <Box sx={{
                                     display: 'flex',
                                     alignItems: 'center',
@@ -1120,9 +1120,10 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                                                 alignItems: 'center',
                                                 justifyContent: 'center',
                                                 color: 'rgb(120, 120, 120)',
-                                                fontStyle: 'italic'
+                                                fontStyle: 'italic',
+                                                mb: 1,
                                             }}>
-                                                Cliquez sur enregistrer pour commencer
+                                                Click the record button to start
                                             </Box>
                                         )}
                                     </Box>
