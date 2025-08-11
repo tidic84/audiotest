@@ -66,6 +66,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
     const isRecordingRef = useRef(false);
     const lastCursorTimeRef = useRef(0);
     const [waveformRefs, setWaveformRefs] = useState({});
+    const [secondaryIsPlaying, setSecondaryIsPlaying] = useState({});
 
     // Grille de timeline et snap
     const [gridSeconds, setGridSeconds] = useState(0.1);
@@ -530,21 +531,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
         // Le hook @wavesurfer/react gère automatiquement le cleanup
     }, [wavesurfer, handleReady, handleLoading, handleTimeUpdate]);
 
-    // Gestion des événements timeupdate pour toutes les tracks secondaires
-    useEffect(() => {
-        Object.values(waveformRefs).forEach(waveformInstance => {
-            if (waveformInstance) {
-                waveformInstance.on("timeupdate", handleTimeUpdate);
-            }
-        });
-        return () => {
-            Object.values(waveformRefs).forEach(waveformInstance => {
-                if (waveformInstance) {
-                    waveformInstance.off?.("timeupdate", handleTimeUpdate);
-                }
-            });
-        };
-    }, [waveformRefs, handleTimeUpdate]);
+    // Décorrélation des pistes: on ne relaye plus le timeupdate des pistes secondaires
 
     useEffect(() => {
         regionsPlugin?.enableDragSelection({
@@ -723,17 +710,13 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
 
     const playAudio = async (priseNumber) => {
         const targetWavesurfer = waveformRefs[priseNumber];
-            if (targetWavesurfer) {
-            Object.entries(waveformRefs).forEach(([prise, wavesurfer]) => {
-                if (prise !== priseNumber && wavesurfer.isPlaying()) {
-                    wavesurfer.pause();
-                }
-            });
+        if (targetWavesurfer) {
             targetWavesurfer.playPause();
+            const isNowPlaying = targetWavesurfer.isPlaying();
+            setSecondaryIsPlaying((prev) => ({ ...prev, [priseNumber]: isNowPlaying }));
         } else {
             console.warn(`Waveform pour la prise ${priseNumber} non trouvé`);
         }
-
     }
 
     const updateOtherPrises = async () => {
@@ -957,24 +940,6 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                 {/* Conteneur des pistes */}
                 <Box ref={tracksContainerRef} sx={{ position: 'relative'}}>
 
-                    {/* Curseur multi track */}
-                    {showOtherTracks && (
-                        <span
-                            ref={cursorRef}
-                            style={{
-                                position: 'absolute',
-                                height: '100%',
-                                width: '1px',
-                                backgroundColor: 'transparent',
-                                zIndex: 3,
-                                pointerEvents: 'none',
-                                left: 8,
-                                transform: `translateX(${waveformRef.current ? ((waveformRef.current.clientWidth / (maxDuration || effectiveDuration || 1)) * (cursorTime || 0)) : 0}px)`,
-                                transition: 'transform 0.1s',
-                            }}
-                        />
-                    )}
-
                     {/* Track principale */}
                     <Box sx={{ p: 1, backgroundColor: 'rgb(245, 245, 245)', height: '100%', position: 'relative', zIndex: 1 }}>
                     <Box sx={{ fontSize: 12, fontWeight: 600, mb: 1, color: 'rgb(45, 188, 255)' }}>
@@ -1008,6 +973,24 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                         </Box>
                     ) : audioUrl ? (
                         <Box sx={{ position: 'relative', width: '100%', height: '100px' }}>
+                            {/* Curseur multi track limité à la piste principale */}
+                            {showOtherTracks && (
+                                <span
+                                    ref={cursorRef}
+                                    style={{
+                                        position: 'absolute',
+                                        top: 0,
+                                        height: '100%',
+                                        width: '1px',
+                                        backgroundColor: 'transparent',
+                                        zIndex: 3,
+                                        pointerEvents: 'none',
+                                        left: 0,
+                                        transform: `translateX(${waveformRef.current ? ((waveformRef.current.clientWidth / (maxDuration || effectiveDuration || 1)) * (cursorTime || 0)) : 0}px)`,
+                                        transition: 'transform 0.1s',
+                                    }}
+                                />
+                            )}
                             {/* Grille uniquement derrière la waveform principale */}
                             {gridPx > 0 && (
                                 <Box
@@ -1062,7 +1045,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                                         Track {priseNumber.split("_")[0]} {priseNumber.split("_")[1] ? `- ${priseNumber.split("_")[1]}` : ""}
                                         <IconButton onClick={() => editAudio(priseNumber)} sx={{}}> <EditIcon /> </IconButton>
                                         <IconButton onClick={() => deleteAudio(priseNumber)} sx={{ color: 'rgb(120, 120, 120)' }}> <DeleteIcon /> </IconButton>
-                                        <IconButton onClick={() => playAudio(priseNumber)} sx={{ color: 'rgb(120, 120, 120)' }}> <PlayArrowIcon /> </IconButton>
+                                        <IconButton onClick={() => playAudio(priseNumber)} sx={{ color: 'rgb(120, 120, 120)' }}> {secondaryIsPlaying[priseNumber] ? <PauseIcon /> : <PlayArrowIcon />} </IconButton>
                                     </Box>
                                     <Waveform
                                         priseNumber={priseNumber}
@@ -1082,11 +1065,14 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                                         gridPx={gridPx}
                                         majorGridPx={majorGridPx}
                                         selectedRegion={selectedRegion}
-                                        onWavesurferReady={(wavesurfer) => {
+                                        onWavesurferReady={(ws) => {
                                             setWaveformRefs(prev => ({
                                                 ...prev, 
-                                                [priseNumber]: wavesurfer
+                                                [priseNumber]: ws
                                             }));
+                                            ws.on('play', () => setSecondaryIsPlaying(prev => ({ ...prev, [priseNumber]: true })));
+                                            ws.on('pause', () => setSecondaryIsPlaying(prev => ({ ...prev, [priseNumber]: false })));
+                                            ws.on('finish', () => setSecondaryIsPlaying(prev => ({ ...prev, [priseNumber]: false })));
                                         }}
                                     />
                                 </Box>

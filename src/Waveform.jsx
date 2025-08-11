@@ -99,7 +99,7 @@ const Waveform = ({
         barWidth: 2,
         barGap: 1,
         barRadius: 2,
-        cursorWidth: 0,
+        cursorWidth: isMainTrack ? 0 : 1,
     };
 
     const { wavesurfer, currentTime, isPlaying } = useWavesurfer(waveformConfig);
@@ -120,7 +120,9 @@ const Waveform = ({
         };
 
         const handleClick = () => {
-            setCursorTime(wavesurfer.getCurrentTime());
+            if (isMainTrack) {
+                setCursorTime(wavesurfer.getCurrentTime());
+            }
         };
 
         const handleInteraction = () => {
@@ -135,11 +137,20 @@ const Waveform = ({
             };
 
             const handleRegionClick = (region) => {
+                if (onRegionSelect) {
                     onRegionSelect([region, priseNumber, regionsPlugin]);
+                }
+            };
+
+            const handleRegionUpdate = (region) => {
+                if (onRegionSelect) {
+                    onRegionSelect([region, priseNumber, regionsPlugin]);
+                }
             };
 
             regionsPlugin?.on('region-created', handleRegionCreate);
             regionsPlugin?.on('region-clicked', handleRegionClick);
+            regionsPlugin?.on('region-updated', handleRegionUpdate);
         }
 
         wavesurfer?.on('ready', handleReady);
@@ -175,12 +186,7 @@ const Waveform = ({
         });
     }, [selectedRegion])
 
-    useEffect(() => {
-        if (wavesurfer && cursorTime !== undefined) {
-            const clampedTime = Math.min(cursorTime, actualDuration);
-            wavesurfer?.setTime(clampedTime);
-        }
-    }, [cursorTime, wavesurfer, actualDuration]);
+    // Décorrélation temporelle: on ne force plus le setTime des pistes secondaires depuis le curseur global
 
     const onPlayPause = () => {
         wavesurfer && wavesurfer?.playPause();
