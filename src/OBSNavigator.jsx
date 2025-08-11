@@ -1,13 +1,16 @@
-import TextField from '@mui/material/TextField';
+import { Unstable_NumberInput as NumberInput } from '@mui/base/Unstable_NumberInput';
 import FastRewindIcon from '@mui/icons-material/FastRewind';
 import FastForwardIcon from '@mui/icons-material/FastForward';
 import ArrowRight from '@mui/icons-material/ArrowRight';
 import ArrowLeft from '@mui/icons-material/ArrowLeft';
 import { Box, IconButton } from "@mui/material";
-import { useState } from "react";
+import { useContext } from "react";
+import OBSContext from "../contexts/obsContext";
 import { ButtonGroup } from '@mui/material';
 
-function OBSNavigator({max, setObs, obs}) {
+function OBSNavigator({max}) {
+
+    const { obs, setObs } = useContext(OBSContext);
 
     const StyledNumberInput = {
         root: {
@@ -18,8 +21,8 @@ function OBSNavigator({max, setObs, obs}) {
         },
         input: {
             style: {
-                width: '4rem',
-                height: '2rem',
+                width: '1.5rem',
+                height: '1rem',
                 textAlign: 'center',
                 borderRadius: '0.5rem',
                 fontSize: '1rem',
@@ -51,22 +54,20 @@ function OBSNavigator({max, setObs, obs}) {
                 paddingX: '1rem',
                 paddingY: '0.3rem',
             }}>                
-                <TextField
+                <NumberInput
                     min={1}
                     max={50}
                     value={obs[0]}
-                    type="number"
                     onChange={(event, val) => {
                         setObs([val, obs[1]]);
                     }}
                     slotProps={StyledNumberInput}
                 />
                 :
-                <TextField
+                <NumberInput
                     min={0}
                     max={max}
                     value={obs[1]}
-                    type="number"
                     onChange={(event, val) => {
                         setObs([obs[0], val]);
                     }}

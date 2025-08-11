@@ -491,7 +491,6 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
 
     const snapToGrid = useCallback((time) => {
         if (!gridSeconds || gridSeconds <= 0) return time;
-        console.log( time, Math.round(time / gridSeconds) * gridSeconds);
         return Math.round(time / gridSeconds) * gridSeconds;
     }, [gridSeconds]);
 
