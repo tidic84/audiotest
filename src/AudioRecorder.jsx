@@ -46,7 +46,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
     })
         , []);
     const plugins = useMemo(() => [regionsPlugin, recordPlugin, timelinePlugin], [regionsPlugin, recordPlugin, timelinePlugin]);
-    const [prise, setPrise] = useState("1");
+    const [prise, setPrise] = useState("0");
     const [bakExists, setBakExists] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [showOtherTracks, setShowOtherTracks] = useState(true);
@@ -85,20 +85,10 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
     }
 
     const fileExists = async (newAudioUrl) => {
-        const url = `http://localhost:19119/burrito/paths/${metadata.local_path}`
-        const ipath = newAudioUrl.split("?ipath=")[1];
-
-        const response = await fetch(url, {
-            method: "GET",
-        })
-        if (response.ok) {
-            const data = await response.json();
-            if (data.includes(ipath)) {
-                return true;
-            } else {
-                return false;
-            }
-        } else {
+        try {
+            const resp = await fetch(newAudioUrl, { method: 'GET', cache: 'no-store' });
+            return resp.ok;
+        } catch (_) {
             return false;
         }
     }
