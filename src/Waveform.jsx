@@ -59,39 +59,39 @@ const Waveform = ({
   }
 
     useEffect(() => {
+        const checkAndSetUrl = async () => {
+            const url = getUrl();
+            const exists = await checkFileExists(url);
+            setFileExists(exists);
+            if (exists) {
+                setAudioUrl(url);
+                return true;
+            } else {
+                setAudioUrl(null);
+                return false;
+            }
+        };
+        // Essai initial
+        let cancelled = false;
+        let attempts = 0;
+        const maxAttempts = 30; // ~9s si interval 300ms
+        const intervalMs = 300;
+        // reset URL si obs change
+        setAudioUrl(null);
 
+        const tryLoad = async () => {
+            const ok = await checkAndSetUrl();
+            if (cancelled) return;
+            if (ok) return; // trouvé
+            attempts += 1;
+            if (attempts < maxAttempts) {
+                setCacheBust(Date.now());
+                setTimeout(tryLoad, intervalMs);
+            }
+        };
 
-      const checkAndSetUrl = async () => {
-          const url = getUrl();
-          const exists = await checkFileExists(url);
-          setFileExists(exists);
-          if (exists) {
-              setAudioUrl(url);
-              return true;
-          } else {
-              setAudioUrl(null);
-              return false;
-          }
-      };
-      // Essai initial
-      let cancelled = false;
-      let attempts = 0;
-      const maxAttempts = 30; // ~9s si interval 300ms
-      const intervalMs = 300;
-
-      const tryLoad = async () => {
-          const ok = await checkAndSetUrl();
-          if (cancelled) return;
-          if (ok) return; // trouvé
-          attempts += 1;
-          if (attempts < maxAttempts) {
-              setCacheBust(Date.now());
-              setTimeout(tryLoad, intervalMs);
-          }
-      };
-
-      tryLoad();
-      return () => { cancelled = true };
+        tryLoad();
+        return () => { cancelled = true };
     }, [priseNumber, obs, metadata]);
 
     const getUrl = (segment = "bytes", chapter = obs[0], paragraph = obs[1], prise = priseNumber) => {
@@ -166,6 +166,25 @@ const Waveform = ({
         wavesurfer?.on('interaction', handleInteraction);
 
     }, [wavesurfer, enableRegions, onRegionSelect, maxDuration, priseNumber, setCursorTime, setCurrentTrack, onDurationUpdate]);
+
+    // Si le composant a été monté caché (display:none), forcer une vérification
+    // de largeur et un recalcul lors de l'apparition.
+    useEffect(() => {
+        const el = waveformRef.current?.parentElement;
+        if (!el) return;
+        let cancelled = false;
+        const tick = () => {
+            if (cancelled) return;
+            const w = el.clientWidth || 0;
+            if (w > 0) {
+                try { wavesurfer?.setOptions({ width: undefined }); } catch (_) {}
+                return;
+            }
+            setTimeout(tick, 60);
+        };
+        tick();
+        return () => { cancelled = true };
+    }, [audioUrl, maxDuration]);
 
     useEffect(() => {
         if (!enableRegions || !regionsPlugin || !wavesurfer) return;
@@ -318,11 +337,11 @@ const Waveform = ({
                                 inset: 0,
                                 zIndex: 0,
                                 pointerEvents: 'none',
-                                backgroundImage: majorGridPx
+                                backgroundImage: majorGridPx && majorGridPx >= 1
                                     ? 'linear-gradient(to right, rgba(0,0,0,0.08) 1px, transparent 1px), linear-gradient(to right, rgba(0,0,0,0.15) 1px, transparent 1px)'
-                                    : 'linear-gradient(to right, rgba(0,0,0,0.08) 1px, transparent 1px)',
+                                    : 'linear-gradient(to right, rgba(0,0,0,0.12) 1px, transparent 1px)',
                                 backgroundSize: majorGridPx
-                                    ? `${gridPx}px 100%, ${majorGridPx}px 100%`
+                                    ? `${Math.max(1, gridPx)}px 100%, ${Math.max(1, majorGridPx)}px 100%`
                                     : `${gridPx}px 100%`,
                                 backgroundRepeat: 'repeat',
                             }}

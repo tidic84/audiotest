@@ -309,7 +309,6 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
             const nextPrise = (await getOldPriseNumber()) + 1;
             setNextPriseNumber(nextPrise);
 
-            // Demander l'accès au microphone
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             mediaStreamRef.current = stream;
 
@@ -322,7 +321,6 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
             analyser.fftSize = 2048;
             analyserRef.current = analyser;
 
-            // Créer le MediaRecorder
             mediaRecorderRef.current = new MediaRecorder(stream);
             chunksRef.current = [];
 
@@ -344,7 +342,6 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                     method: "POST",
                     body: formData
                 });
-                // S'assurer que le fichier est bien disponible avant d'ajouter la piste
                 const createdUrl = getUrl("bytes", obs[0], obs[1], nextPrise);
                 await waitForFileByUrl(createdUrl);
 
@@ -357,7 +354,6 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                     updateMainTrackWidth(undefined, duration);
                 }
 
-                // Nettoyer
                 setNextPriseNumber(null);
                 chunksRef.current = [];
 
@@ -377,7 +373,6 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
             isRecordingRef.current = true;
             setIsRecording(true);
 
-            // Petit délai pour s'assurer que tout est configuré
             setTimeout(() => {
                 startWaveformAnimation();
             }, 100);
@@ -443,7 +438,6 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
         interact: false,
     })
 
-    // Fonction pour adapter la largeur visuelle de la piste principale en fonction de la durée max
     const updateMainTrackWidth = useCallback((duration, newMaxDuration = maxDuration) => {
         if (!waveformRef.current || !wavesurfer) return;
         if (!duration) duration = wavesurfer.getDuration();
@@ -466,6 +460,23 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
         return () => observer.disconnect();
     }, [waveformRef]);
 
+    useEffect(() => {
+        let cancelled = false;
+        const ensureWidth = () => {
+            if (cancelled) return;
+            const el = waveformRef.current;
+            if (!el) return;
+            const w = el.clientWidth || 0;
+            if (w > 0) {
+                setWaveformWidth(w);
+                return;
+            }
+            setTimeout(ensureWidth, 60);
+        };
+        ensureWidth();
+        return () => { cancelled = true; };
+    }, [audioUrl]);
+
     // Adapter dynamiquement la largeur de la waveform principale lors d'un resize du conteneur
     useEffect(() => {
         if (!wavesurfer || !waveformRef.current) return;
@@ -477,11 +488,26 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
         return (maxDuration && maxDuration > 0) ? maxDuration : (dur || 0);
     }, [maxDuration, wavesurfer]);
 
-    const gridPx = useMemo(() => {
-        if (!waveformWidth || !gridSeconds) return 0;
+    const derivedGridSeconds = useMemo(() => {
+        if (!waveformWidth) return gridSeconds;
         const baseDuration = effectiveDuration || 1;
-        return (waveformWidth / baseDuration) * gridSeconds;
+        const desiredMinPx = 8;
+        const secondsPerPx = baseDuration / waveformWidth;
+        const minSeconds = desiredMinPx * secondsPerPx;
+        const niceSteps = [
+            0.05, 0.1, 0.2, 0.25, 0.5,
+            1, 2, 5, 10, 15, 20, 30,
+            60, 120, 300, 600, 900, 1200
+        ];
+        const nice = niceSteps.find((s) => s >= minSeconds) || minSeconds;
+        return Math.max(gridSeconds, nice);
     }, [waveformWidth, effectiveDuration, gridSeconds]);
+
+    const gridPx = useMemo(() => {
+        if (!waveformWidth || !derivedGridSeconds) return 0;
+        const baseDuration = effectiveDuration || 1;
+        return (waveformWidth / baseDuration) * derivedGridSeconds;
+    }, [waveformWidth, effectiveDuration, derivedGridSeconds]);
 
     const majorGridPx = useMemo(() => (gridPx ? gridPx * 5 : 0), [gridPx]);
 
@@ -497,7 +523,6 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
         fetch(deleteUrl, {
             method: "POST",
         }).then(() => {
-            // Ne rafraîchir que la piste vide après suppression
             refreshEmptyTrackOnly();
         });
     }
@@ -514,7 +539,6 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
 
     
 
-    // Créer les handlers avec useCallback pour éviter les re-créations
     const handleReady = useCallback(() => {
         if (!wavesurfer) return;
         const duration = wavesurfer.getDuration();
@@ -529,9 +553,9 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
     }, []);
 
     const snapToGrid = useCallback((time) => {
-        if (!gridSeconds || gridSeconds <= 0) return time;
-        return Math.round(time / gridSeconds) * gridSeconds;
-    }, [gridSeconds]);
+        if (!derivedGridSeconds || derivedGridSeconds <= 0) return time;
+        return Math.round(time / derivedGridSeconds) * derivedGridSeconds;
+    }, [derivedGridSeconds]);
 
     const updateCursorTime = useCallback((time, { force = false } = {}) => {
         const base = (snapEnabled && !force) ? snapToGrid(time) : time;
@@ -542,11 +566,9 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
     const handleTimeUpdate = useCallback(() => {
         if (!wavesurfer) return;
         const now = wavesurfer.getCurrentTime();
-        // Pendant la lecture, on ne snap pas le curseur pour garder un mouvement fluide
         updateCursorTime(now, { force: true });
     }, [wavesurfer, updateCursorTime]);
 
-    // Gestion du clic sur la piste principale: positionne directement sur la grille sans étape intermédiaire
     const handleMainWaveformClick = useCallback((e) => {
         if (!wavesurfer || !waveformRef.current) return;
         const rect = waveformRef.current.getBoundingClientRect();
@@ -555,12 +577,10 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
         if (!baseDuration || !rect.width) return;
         const rawTime = (x / rect.width) * baseDuration;
         const targetTime = (snapEnabled ? snapToGrid(rawTime) : rawTime);
-        // Mise à jour immédiate du curseur et du wavesurfer pour éviter tout effet visuel en deux temps
         updateCursorTime(targetTime);
         try {
             wavesurfer.setTime(targetTime);
         } catch (_) {
-            // noop
         }
     }, [wavesurfer, waveformRef, effectiveDuration, snapEnabled, snapToGrid, updateCursorTime]);
 
@@ -572,10 +592,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
         wavesurfer.on("loading", handleLoading);
         wavesurfer.on("timeupdate", handleTimeUpdate);
 
-        // Le hook @wavesurfer/react gère automatiquement le cleanup
     }, [wavesurfer, handleReady, handleLoading, handleTimeUpdate]);
-
-    // Décorrélation des pistes: on ne relaye plus le timeupdate des pistes secondaires
 
     useEffect(() => {
         regionsPlugin?.enableDragSelection({
@@ -633,6 +650,18 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
         updateNextPrise();
     }, [obs, isRecording, getOldPriseNumber]);
 
+    // Réinitialiser l'état lié aux fichiers lorsque l'OBS change pour éviter les 404 transitoires
+    useEffect(() => {
+        setAudioUrl("");
+        setOtherPrises([]);
+        setWaveformRefs({});
+        setSecondaryIsPlaying({});
+        setSelectedRegion([]);
+        setTrackDurations({});
+        setMaxDuration(0);
+        setPrise("0");
+    }, [obs]);
+
     useEffect(() => {
         const updateBakExists = async () => {
             setBakExists(await fileExists(getUrl() + ".bak"))
@@ -659,7 +688,6 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
             try {
                 oldRegion.remove();
             } catch (e) {
-                // noop
             }
         }
         setSelectedRegion(regionData);
@@ -755,12 +783,9 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
         await fetch(url, {
             method: "POST",
         });
-        // Ne rafraîchir que la piste vide après renommage
         refreshEmptyTrackOnly();
-        // Mettre à jour localement la liste pour n'impacter que la piste concernée
         const newPriseKey = `${oldName.split("_")[0]}_${newName}`;
         setOtherPrises((prev) => prev.map((p) => (p === oldName ? newPriseKey : p)));
-        // Rebasculer les refs si nécessaire
         setWaveformRefs((prev) => {
             const { [oldName]: oldWs, ...rest } = prev || {};
             return oldWs ? { ...rest, [newPriseKey]: oldWs } : prev;
@@ -773,9 +798,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
         await fetch(url, {
             method: "POST",
         });
-        // Ne rafraîchir que la piste vide après suppression d'une piste secondaire
         refreshEmptyTrackOnly();
-        // Retirer localement uniquement la piste supprimée
         setOtherPrises((prev) => prev.filter((p) => p !== priseNumber));
         setWaveformRefs((prev) => {
             if (!prev) return prev;
@@ -822,40 +845,58 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
     }
 
     const checkIfPriseExists = async () => {
-        if (showOtherTracks) {
-            const url0 = getUrl("bytes", obs[0], obs[1], 0);
-            const url1 = getUrl("bytes", obs[0], obs[1], 1);
-            const priseExists = await fileExists(url0);
-            const prise1Exists = await fileExists(url1);
-            if (!prise1Exists) return;
-            if (!priseExists) {
-                const newFile = await fetch(url1);
-                const newFileBlob = await newFile.blob();
-                const formData = new FormData();
-                formData.append("file", newFileBlob);
-                const response = await fetch(url0, {
-                    method: "POST",
-                    body: formData,
-                });
-                setAudioUrl(url0);
-                setPrise("0");
+        if (!showOtherTracks) return;
+        const url0 = getUrl("bytes", obs[0], obs[1], 0);
+        const prise0Exists = await fileExists(url0);
+        if (prise0Exists) {
+            setPrise("0");
+            return;
+        }
 
-                setTimeout(async () => {
-                    const newJson = [
-                        {
-                            "track": "1",
-                            "start": 0,
-                            "end": wavesurfer?.getDuration(),
-                        },
-                    ]
+        // Rechercher la première prise existante (avec son éventuel nom)
+        const prises = await listPrises(obs[0], obs[1]);
+        const chapterString = obs[0] < 10 ? `0${obs[0]}` : obs[0];
+        const paragraphString = obs[1] < 10 ? `0${obs[1]}` : obs[1];
+        const newPrises = prises
+            .map(prise => prise.split(`/${chapterString}-${paragraphString}_`)[1].replace(".mp3", ""))
+            .filter(prise => !prise.includes(".json"));
+        if (!newPrises || newPrises.length === 0) return;
 
-                    updateJson(newJson);
-                }, 100)
+        // Trier par numéro croissant et choisir la première
+        const firstPrise = [...newPrises].sort((a, b) => {
+            const aNum = parseInt((a || "").split("_")[0]);
+            const bNum = parseInt((b || "").split("_")[0]);
+            return (aNum || 0) - (bNum || 0);
+        })[0];
+        if (!firstPrise) return;
 
-            } else {
-                setPrise("0");
+        try {
+            const sourceUrl = getUrl("bytes", obs[0], obs[1], firstPrise);
+            const newFile = await fetch(sourceUrl);
+            if (!newFile.ok) return;
+            const newFileBlob = await newFile.blob();
+            const formData = new FormData();
+            formData.append("file", newFileBlob);
+            await fetch(url0, {
+                method: "POST",
+                body: formData,
+            });
+            setAudioUrl(url0);
+            setPrise("0");
 
-            }
+            setTimeout(async () => {
+                const newJson = [
+                    {
+                        "track": "1",
+                        "start": 0,
+                        "end": wavesurfer?.getDuration(),
+                    },
+                ]
+
+                updateJson(newJson);
+            }, 100)
+        } catch (_) {
+            // noop
         }
     }
 
@@ -868,10 +909,6 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
     }
 
     useEffect(() => {
-        wavesurfer?.setOptions({
-            // cursorWidth: showOtherTracks ? 0 : 1,
-        })
-
         checkIfPriseExists();
         updateOtherPrises();
         updateMainTrackWidth(undefined, maxDuration);
@@ -923,10 +960,10 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                 onPlayPause();
                 return;
             } else if (event.key === 'ArrowLeft') {
-                updateCursorTime((cursorTime ?? 0) - gridSeconds);
+                updateCursorTime((cursorTime ?? 0) - derivedGridSeconds);
                 return;
             } else if (event.key === 'ArrowRight') {
-                updateCursorTime((cursorTime ?? 0) + gridSeconds);
+                updateCursorTime((cursorTime ?? 0) + derivedGridSeconds);
                 return;
             } else if (event.key === 'r') {
                 return isRecording ? stopRecording() : startRecording();
