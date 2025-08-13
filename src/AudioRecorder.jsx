@@ -571,16 +571,30 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
 
     }, [wavesurfer, handleReady, handleLoading, handleTimeUpdate]);
 
-    useEffect(() => {
-        regionsPlugin?.enableDragSelection({
-            drag: true,
-            color: 'rgba(0, 0, 0, 0.2)',
-        }, 1);
-        regionsPlugin?.on('region-created', handleRegionCreate);
-        regionsPlugin?.on('region-updated', handleRegionUpdate);
-        regionsPlugin?.on('region-clicked', handleRegionClick);
+    const disableDragSelectionRef = useRef(null);
 
-    }, [wavesurfer]);
+    useEffect(() => {
+        // Toujours désactiver avant d'activer
+        if (disableDragSelectionRef.current) {
+            try { disableDragSelectionRef.current(); } catch (_) {}
+            disableDragSelectionRef.current = null;
+        }
+        if (regionsPlugin && wavesurfer) {
+            disableDragSelectionRef.current = regionsPlugin.enableDragSelection({
+                drag: true,
+                color: 'rgba(0, 0, 0, 0.2)',
+            }, 1);
+            regionsPlugin.on('region-created', handleRegionCreate);
+            regionsPlugin.on('region-updated', handleRegionUpdate);
+            regionsPlugin.on('region-clicked', handleRegionClick);
+        }
+        return () => {
+            if (disableDragSelectionRef.current) {
+                try { disableDragSelectionRef.current(); } catch (_) {}
+                disableDragSelectionRef.current = null;
+            }
+        };
+    }, [wavesurfer, regionsPlugin]);
 
     const handleRegionCreate = (region) => {
         if (handleRegionSelect) {

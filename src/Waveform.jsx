@@ -48,6 +48,7 @@ const Waveform = ({
     const [actualDuration, setActualDuration] = useState(0);
     const [fileExists, setFileExists] = useState(false);
     const [audioUrl, setAudioUrl] = useState(null);
+    const disableDragSelectionRef = useRef(null);
 
   const checkFileExists = async (newAudioUrl) => {
     const response = await fetch(`http://localhost:19119/burrito/paths/${metadata.local_path}`)
@@ -185,15 +186,23 @@ const Waveform = ({
     }, [audioUrl, maxDuration]);
 
     useEffect(() => {
-        if (!enableRegions || !regionsPlugin || !wavesurfer) return;
-        try {
-            regionsPlugin.enableDragSelection({
+        if (!regionsPlugin) return;
+        if (disableDragSelectionRef.current) {
+            try { disableDragSelectionRef.current(); } catch (_) {}
+            disableDragSelectionRef.current = null;
+        }
+        if (enableRegions && wavesurfer) {
+            disableDragSelectionRef.current = regionsPlugin.enableDragSelection({
                 drag: true,
                 color: 'rgba(0, 0, 0, 0.2)'
             });
-        } catch (e) {
-            // noop
         }
+        return () => {
+            if (disableDragSelectionRef.current) {
+                try { disableDragSelectionRef.current(); } catch (_) {}
+                disableDragSelectionRef.current = null;
+            }
+        };
     }, [enableRegions, regionsPlugin, wavesurfer]);
 
     const updateActualDuration = () => {
