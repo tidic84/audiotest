@@ -200,21 +200,16 @@ const Waveform = ({
 
     useEffect(() => {
         if (!enableRegions || !regionsPlugin || !wavesurfer) return;
-        // Prevent double init on re-renders
-        if (regionsPlugin.__dragSelectionEnabled) return;
-        try {
-            regionsPlugin.enableDragSelection({
-                drag: true,
-                color: 'rgba(0, 0, 0, 0.2)'
-            });
-            regionsPlugin.__dragSelectionEnabled = true;
-        } catch (e) {
-            // noop
+        const ws = wavesurfer;
+        if (regionsPlugin.__dragSelectionWs !== ws) {
+            try {
+                regionsPlugin.enableDragSelection({
+                    drag: true,
+                    color: 'rgba(0, 0, 0, 0.2)'
+                });
+                regionsPlugin.__dragSelectionWs = ws;
+            } catch (e) {}
         }
-        return () => {
-            // no API to disable dragSelection directly, but we can clear the flag on unmount
-            regionsPlugin.__dragSelectionEnabled = false;
-        };
     }, [enableRegions, regionsPlugin, wavesurfer]);
 
     const updateActualDuration = () => {

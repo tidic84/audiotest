@@ -592,13 +592,14 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
 
     useEffect(() => {
         if (!regionsPlugin || !wavesurfer) return;
-        if (!regionsPlugin.__dragSelectionEnabled) {
+        const ws = wavesurfer;
+        if (regionsPlugin.__dragSelectionWs !== ws) {
             try {
                 regionsPlugin.enableDragSelection({
                     drag: true,
                     color: 'rgba(0, 0, 0, 0.2)',
                 }, 1);
-                regionsPlugin.__dragSelectionEnabled = true;
+                regionsPlugin.__dragSelectionWs = ws;
             } catch (_) {}
         }
         regionsPlugin.on('region-created', handleRegionCreate);
