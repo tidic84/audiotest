@@ -571,6 +571,25 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
 
     }, [wavesurfer, handleReady, handleLoading, handleTimeUpdate]);
 
+    const handleRegionCreate = (region) => {
+        if (handleRegionSelect) {
+            // Identifie explicitement la piste principale comme "0"
+            handleRegionSelect([region, "0", regionsPlugin]);
+        }
+    };
+
+    const handleRegionUpdate = (region) => {
+        if (handleRegionSelect) {
+            // Identifie explicitement la piste principale comme "0"
+            handleRegionSelect([region, "0", regionsPlugin]);
+        }
+    };
+
+    const handleRegionClick = (region) => {
+        // Identifie explicitement la piste principale comme "0"
+        handleRegionSelect([region, "0", regionsPlugin]);
+    };
+
     useEffect(() => {
         if (!regionsPlugin || !wavesurfer) return;
         if (!regionsPlugin.__dragSelectionEnabled) {
@@ -593,26 +612,6 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
         };
 
     }, [wavesurfer, regionsPlugin, handleRegionCreate, handleRegionUpdate, handleRegionClick]);
-
-    const handleRegionCreate = (region) => {
-        if (handleRegionSelect) {
-            // Identifie explicitement la piste principale comme "0"
-            handleRegionSelect([region, "0", regionsPlugin]);
-        }
-    };
-
-    const handleRegionUpdate = (region) => {
-        if (handleRegionSelect) {
-            // Identifie explicitement la piste principale comme "0"
-            handleRegionSelect([region, "0", regionsPlugin]);
-        }
-    };
-
-    const handleRegionClick = (region) => {
-        // Identifie explicitement la piste principale comme "0"
-        handleRegionSelect([region, "0", regionsPlugin]);
-    };
-
 
     useEffect(() => {
         const updateAudioUrl = async () => {
