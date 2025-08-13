@@ -584,18 +584,21 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
 
     const handleRegionCreate = (region) => {
         if (handleRegionSelect) {
-            handleRegionSelect([region, prise, regionsPlugin]);
+            // Identifie explicitement la piste principale comme "0"
+            handleRegionSelect([region, "0", regionsPlugin]);
         }
     };
 
     const handleRegionUpdate = (region) => {
         if (handleRegionSelect) {
-            handleRegionSelect([region, prise, regionsPlugin]);
+            // Identifie explicitement la piste principale comme "0"
+            handleRegionSelect([region, "0", regionsPlugin]);
         }
     };
 
     const handleRegionClick = (region) => {
-        handleRegionSelect([region, prise, regionsPlugin]);
+        // Identifie explicitement la piste principale comme "0"
+        handleRegionSelect([region, "0", regionsPlugin]);
     };
 
 
