@@ -704,8 +704,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
         const end = copiedRegion[0].end;
         const track = copiedRegion[1];
         const insertTime = cursorTime;
-        console.log("regionData", regionData)
-
+        
         if (regionData[1] == "0") {
             await cutRegion(regionData);
         }
@@ -1014,7 +1013,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                 }
             }
             if (event.key === 'v' && event.ctrlKey) {
-                pasteRegion(copiedRegion);
+                pasteRegion(selectedRegion);
                 return;
             } else if (event.key === 'z' && event.ctrlKey) {
                 onRestore();
