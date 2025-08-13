@@ -136,20 +136,24 @@ const Waveform = ({
             setCurrentTrack(priseNumber);
         };
 
+        let handleRegionCreate;
+        let handleRegionClick;
+        let handleRegionUpdate;
+
         if (enableRegions) {
-            const handleRegionCreate = (region) => {
+            handleRegionCreate = (region) => {
                 if (onRegionSelect) {
                     onRegionSelect([region, priseNumber, regionsPlugin]);
                 }
             };
 
-            const handleRegionClick = (region) => {
+            handleRegionClick = (region) => {
                 if (onRegionSelect) {
                     onRegionSelect([region, priseNumber, regionsPlugin]);
                 }
             };
 
-            const handleRegionUpdate = (region) => {
+            handleRegionUpdate = (region) => {
                 if (onRegionSelect) {
                     onRegionSelect([region, priseNumber, regionsPlugin]);
                 }
@@ -163,7 +167,17 @@ const Waveform = ({
         wavesurfer?.on('ready', handleReady);
         wavesurfer?.on('interaction', handleInteraction);
 
-    }, [wavesurfer, enableRegions, onRegionSelect, maxDuration, priseNumber, setCursorTime, setCurrentTrack, onDurationUpdate]);
+        return () => {
+            if (enableRegions) {
+                if (handleRegionCreate) regionsPlugin?.un('region-created', handleRegionCreate);
+                if (handleRegionClick) regionsPlugin?.un('region-clicked', handleRegionClick);
+                if (handleRegionUpdate) regionsPlugin?.un('region-updated', handleRegionUpdate);
+            }
+            wavesurfer?.un('ready', handleReady);
+            wavesurfer?.un('interaction', handleInteraction);
+        };
+
+    }, [wavesurfer, enableRegions, onRegionSelect, maxDuration, priseNumber, setCursorTime, setCurrentTrack, onDurationUpdate, regionsPlugin]);
 
     // Si le composant a été monté caché (display:none), forcer une vérification
     // de largeur et un recalcul lors de l'apparition.
@@ -186,14 +200,21 @@ const Waveform = ({
 
     useEffect(() => {
         if (!enableRegions || !regionsPlugin || !wavesurfer) return;
+        // Prevent double init on re-renders
+        if (regionsPlugin.__dragSelectionEnabled) return;
         try {
             regionsPlugin.enableDragSelection({
                 drag: true,
                 color: 'rgba(0, 0, 0, 0.2)'
             });
+            regionsPlugin.__dragSelectionEnabled = true;
         } catch (e) {
             // noop
         }
+        return () => {
+            // no API to disable dragSelection directly, but we can clear the flag on unmount
+            regionsPlugin.__dragSelectionEnabled = false;
+        };
     }, [enableRegions, regionsPlugin, wavesurfer]);
 
     const updateActualDuration = () => {
