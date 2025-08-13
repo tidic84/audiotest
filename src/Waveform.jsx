@@ -49,13 +49,11 @@ const Waveform = ({
     const [fileExists, setFileExists] = useState(false);
     const [audioUrl, setAudioUrl] = useState(null);
 
-  const checkFileExists = async (audioUrl) => {
-      try {
-          const resp = await fetch(audioUrl, { method: 'GET', cache: 'no-store' });
-          return resp.ok;
-      } catch (error) {
-          return false;
-      }
+  const checkFileExists = async (newAudioUrl) => {
+    const response = await fetch(`http://localhost:19119/burrito/paths/${metadata.local_path}`)
+    const data = await response.json();
+    const ipath = newAudioUrl.split("?ipath=")[1].split("&")[0];
+    return data.some(item => item.includes(ipath));
   }
 
     useEffect(() => {
