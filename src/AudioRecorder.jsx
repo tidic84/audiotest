@@ -22,11 +22,7 @@ import Tooltip from '@mui/material/Tooltip';
 import Waveform from './Waveform';
 import CheckIcon from '@mui/icons-material/Check';
 import CloseIcon from '@mui/icons-material/Close';
-
-import {
-    postJson,
-    getJson
-} from "pithekos-lib";
+import AutorenewIcon from '@mui/icons-material/Autorenew'
 
 const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
     const [isRecording, setIsRecording] = useState(false);
@@ -46,7 +42,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
     })
         , []);
     const plugins = useMemo(() => [regionsPlugin, recordPlugin, timelinePlugin], [regionsPlugin, recordPlugin, timelinePlugin]);
-    const [prise, setPrise] = useState("0");
+    const [prise, setPrise] = useState(null);
     const [bakExists, setBakExists] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [showOtherTracks, setShowOtherTracks] = useState(true);
@@ -71,8 +67,9 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
     const [secondaryIsPlaying, setSecondaryIsPlaying] = useState({});
     const [editingPrise, setEditingPrise] = useState(null);
     const [editingName, setEditingName] = useState('');
+    const [mainTrack, setMainTrack] = useState(null);
 
-    // Grille de timeline et snap
+    // Grille de timeline
     const [gridSeconds, setGridSeconds] = useState(0.1);
     const [snapEnabled, setSnapEnabled] = useState(true);
     const tracksContainerRef = useRef(null);
@@ -85,12 +82,10 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
     }
 
     const fileExists = async (newAudioUrl) => {
-        try {
-            const resp = await fetch(newAudioUrl, { method: 'GET', cache: 'no-store' });
-            return resp.ok;
-        } catch (_) {
-            return false;
-        }
+        const response = await fetch(`http://localhost:19119/burrito/paths/${metadata.local_path}`)
+        const data = await response.json();
+        const ipath = newAudioUrl.split("?ipath=")[1];
+        return data.some(item => item.includes(ipath));
     }
 
     const listPrises = async (chapter, paragraph) => {
@@ -112,7 +107,6 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                 const exists = await fileExists(urlToCheck);
                 if (exists) return true;
             } catch (_) {
-                // noop
             }
             await new Promise((r) => setTimeout(r, intervalMs));
         }
@@ -196,28 +190,10 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                     setMaxDuration(newMaxDuration);
                 }
                 updateMainTrackWidth(newMaxDuration);
-                const newJson = [
-                    {
-                        "track": A.split("_")[0],
-                        "start": 0,
-                        "end": startTimeB,
-                    },
-                    {
-                        "track": B.split("_")[0],
-                        "start": startTimeB,
-                        "end": endTimeB,
-                    },
-                    {
-                        "track": A.split("_")[0],
-                        "start": endTimeB,
-                        "end": wavesurfer.getDuration(),
-                    }
-                ]
-                updateJson(newJson);
 
                 const formData = new FormData();
                 formData.append("file", wav);
-                const response = await fetch(getUrl("bytes", obs[0], obs[1], 0), {
+                const response = await fetch(getUrl("bytes", obs[0], obs[1], prise), {
                     method: "POST",
                     body: formData,
                 });
@@ -476,6 +452,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
         ensureWidth();
         return () => { cancelled = true; };
     }, [audioUrl]);
+    
 
     // Adapter dynamiquement la largeur de la waveform principale lors d'un resize du conteneur
     useEffect(() => {
@@ -594,45 +571,63 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
 
     }, [wavesurfer, handleReady, handleLoading, handleTimeUpdate]);
 
-    useEffect(() => {
-        regionsPlugin?.enableDragSelection({
-            drag: true,
-            color: 'rgba(0, 0, 0, 0.2)',
-        }, 1);
-        regionsPlugin?.on('region-created', handleRegionCreate);
-        regionsPlugin?.on('region-updated', handleRegionUpdate);
-        regionsPlugin?.on('region-clicked', handleRegionClick);
+    const disableDragSelectionRef = useRef(null);
 
-    }, [wavesurfer]);
+    useEffect(() => {
+        // Toujours désactiver avant d'activer
+        if (disableDragSelectionRef.current) {
+            try { disableDragSelectionRef.current(); } catch (_) {}
+            disableDragSelectionRef.current = null;
+        }
+        if (regionsPlugin && wavesurfer) {
+            disableDragSelectionRef.current = regionsPlugin.enableDragSelection({
+                drag: true,
+                color: 'rgba(0, 0, 0, 0.2)',
+            }, 1);
+            regionsPlugin.on('region-created', handleRegionCreate);
+            regionsPlugin.on('region-updated', handleRegionUpdate);
+            regionsPlugin.on('region-clicked', handleRegionClick);
+        }
+        return () => {
+            if (disableDragSelectionRef.current) {
+                try { disableDragSelectionRef.current(); } catch (_) {}
+                disableDragSelectionRef.current = null;
+            }
+        };
+    }, [wavesurfer, regionsPlugin]);
 
     const handleRegionCreate = (region) => {
         if (handleRegionSelect) {
-            handleRegionSelect([region, prise, regionsPlugin]);
+            // Identifie explicitement la piste principale comme "0"
+            handleRegionSelect([region, "0", regionsPlugin]);
         }
     };
 
     const handleRegionUpdate = (region) => {
         if (handleRegionSelect) {
-            handleRegionSelect([region, prise, regionsPlugin]);
+            // Identifie explicitement la piste principale comme "0"
+            handleRegionSelect([region, "0", regionsPlugin]);
         }
     };
 
     const handleRegionClick = (region) => {
-        handleRegionSelect([region, prise, regionsPlugin]);
+        // Identifie explicitement la piste principale comme "0"
+        handleRegionSelect([region, "0", regionsPlugin]);
     };
 
 
     useEffect(() => {
         const updateAudioUrl = async () => {
             setIsLoading(true);
-            const url = getUrl();
+            let url = getUrl("bytes", obs[0], obs[1], prise);
+            if (url.includes("_null.mp3")) {
+                const newPrise = await updatePrise();
+                url = getUrl("bytes", obs[0], obs[1], newPrise);
+                
+            }
             if (await fileExists(url)) {
                 setTimeout(async () => {
                     setAudioUrl(url)
-                }, audioUrl != "" ? 200 : 0);
-            } else {
-                setTimeout(() => {
-                    setAudioUrl("")
                 }, audioUrl != "" ? 200 : 0);
             }
         }
@@ -651,6 +646,12 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
     }, [obs, isRecording, getOldPriseNumber]);
 
     // Réinitialiser l'état lié aux fichiers lorsque l'OBS change pour éviter les 404 transitoires
+    const updatePrise = async () => {
+        const mainTrack = await getMainTrack()
+        const newPrise = mainTrack?.split("/")?.pop().split("_")[2]?.replace(".mp3", "");
+        setPrise(newPrise);
+        return newPrise;
+    }
     useEffect(() => {
         setAudioUrl("");
         setOtherPrises([]);
@@ -659,8 +660,12 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
         setSelectedRegion([]);
         setTrackDurations({});
         setMaxDuration(0);
-        setPrise("0");
+
+        updatePrise();
     }, [obs]);
+    useEffect(() => {
+        updatePrise();
+    }, []);
 
     useEffect(() => {
         const updateBakExists = async () => {
@@ -699,7 +704,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
         const end = copiedRegion[0].end;
         const track = copiedRegion[1];
         const insertTime = cursorTime;
-
+        
         if (regionData[1] == "0") {
             await cutRegion(regionData);
         }
@@ -846,20 +851,27 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
 
     const checkIfPriseExists = async () => {
         if (!showOtherTracks) return;
-        const url0 = getUrl("bytes", obs[0], obs[1], 0);
-        const prise0Exists = await fileExists(url0);
-        if (prise0Exists) {
-            setPrise("0");
-            return;
+
+        // Si une piste 0 existe (quel que soit son suffixe), l'utiliser telle quelle
+        const existing0 = await getTrackByNumber(0);
+        const chapterString = obs[0] < 10 ? `0${obs[0]}` : obs[0];
+        const paragraphString = obs[1] < 10 ? `0${obs[1]}` : obs[1];
+        if (existing0) {
+            const fileName = existing0.split("/").pop() || "";
+            const suffix = fileName.split(`${chapterString}-${paragraphString}_`)[1]?.replace(".mp3", "");
+            if (suffix) {
+                setPrise(suffix);
+                return;
+            }
         }
 
         // Rechercher la première prise existante (avec son éventuel nom)
         const prises = await listPrises(obs[0], obs[1]);
-        const chapterString = obs[0] < 10 ? `0${obs[0]}` : obs[0];
-        const paragraphString = obs[1] < 10 ? `0${obs[1]}` : obs[1];
         const newPrises = prises
             .map(prise => prise.split(`/${chapterString}-${paragraphString}_`)[1].replace(".mp3", ""))
-            .filter(prise => !prise.includes(".json"));
+            .filter(prise => !prise.includes(".json"))
+            // Ne pas utiliser une piste déjà 0_* comme source
+            .filter(prise => !(prise || "").startsWith("0"));
         if (!newPrises || newPrises.length === 0) return;
 
         // Trier par numéro croissant et choisir la première
@@ -877,35 +889,85 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
             const newFileBlob = await newFile.blob();
             const formData = new FormData();
             formData.append("file", newFileBlob);
-            await fetch(url0, {
+            // console.log("First:", firstPrise);
+            const newUrl0 = getUrl("bytes", obs[0], obs[1], `0_${firstPrise.split("_")[0]}`);
+            await fetch(newUrl0, {
                 method: "POST",
                 body: formData,
             });
-            setAudioUrl(url0);
-            setPrise("0");
-
-            setTimeout(async () => {
-                const newJson = [
-                    {
-                        "track": "1",
-                        "start": 0,
-                        "end": wavesurfer?.getDuration(),
-                    },
-                ]
-
-                updateJson(newJson);
-            }, 100)
-        } catch (_) {
-            // noop
+            setAudioUrl(newUrl0);
+            setPrise(`0_${firstPrise.split("_")[0]}`);
+        } catch (e) {
+            console.error("Error with audio:", e);
         }
     }
 
-    const updateJson = async (newJson) => {
-        const payload = JSON.stringify({ payload: JSON.stringify(newJson) });
-        const response = await postJson(
-            getUrl("raw", obs[0], obs[1], prise, "json"),
-            payload
-        );
+    const switchMainTrack = async (newTrackNumber) => {
+        await saveMainTrack()        
+        const chapterString = obs[0] < 10 ? `0${obs[0]}` : obs[0];
+        const paragraphString = obs[1] < 10 ? `0${obs[1]}` : obs[1];
+        const trackPath = `audio_content/${chapterString}-${paragraphString}/${chapterString}-${paragraphString}_${newTrackNumber}.mp3`;
+        const mainTrack = `audio_content/${chapterString}-${paragraphString}/${chapterString}-${paragraphString}_0_${newTrackNumber.split("_")[0]}.mp3`;
+
+        let url = `http://localhost:19119/burrito/ingredient/copy/${metadata.local_path}?src_path=${trackPath}&target_path=${mainTrack}`;
+        await fetch(url, {  
+            method: "POST",
+        })
+
+        // Actualiser la liste des pistes
+        updateOtherPrises();
+        setPrise(newTrackNumber);
+        setMainTrack(mainTrack);
+    }
+
+
+    const saveMainTrack = async () => {
+        const mainTrack = await getMainTrack()
+        const saveTrackNumber = mainTrack.split("/").pop().split("_")[2]?.replace(".mp3", "")
+        const saveTrack = await getTrackByNumber(saveTrackNumber)
+        const saveTrackName = saveTrack.split("/").pop().split("_")[2]?.replace(".mp3", "")
+
+        const track = `${saveTrackNumber}${saveTrackName ? "_" + saveTrackName : ""}`;
+       
+        if (!saveTrackNumber.includes("0_")) {
+            const paragraphString = obs[1] < 10 ? `0${obs[1]}` : obs[1];
+            const chapterString = obs[0] < 10 ? `0${obs[0]}` : obs[0];
+            const savePath = `audio_content/${chapterString}-${paragraphString}/${chapterString}-${paragraphString}_${track}.mp3`;
+            let url = `http://localhost:19119/burrito/ingredient/copy/${metadata.local_path}?src_path=${mainTrack}&target_path=${savePath}&delete_src=true`;
+            await fetch(url, {  
+                method: "POST",
+            })
+        }
+    }
+
+    const getMainTrack = async () => {
+        const url = `http://localhost:19119/burrito/paths/${metadata.local_path}`
+        const response = await fetch(url, {
+            method: "GET",
+        })
+        const data = await response.json();
+        let chapterString = obs[0] < 10 ? `0${obs[0]}` : obs[0];
+        let paragraphString = obs[1] < 10 ? `0${obs[1]}` : obs[1];
+        const dataFiltered = data.filter(item => item.includes(`audio_content/${chapterString}-${paragraphString}/${chapterString}-${paragraphString}_0`) && !item.includes(".bak"))
+        return dataFiltered.length > 0 ? dataFiltered[0] : null;
+    }
+
+    const getTrackByNumber = async (number) => {
+        const url = `http://localhost:19119/burrito/paths/${metadata.local_path}`
+        const response = await fetch(url, {
+            method: "GET",
+        })
+        const data = await response.json();
+        let chapterString = obs[0] < 10 ? `0${obs[0]}` : obs[0];
+        let paragraphString = obs[1] < 10 ? `0${obs[1]}` : obs[1];
+        const dataFiltered = data.filter(item => item.includes(`audio_content/${chapterString}-${paragraphString}/${chapterString}-${paragraphString}_${number}`) && !item.includes(".bak"))
+        return dataFiltered.length > 0 ? dataFiltered[0] : null;
+    }
+
+    const getTrackName = async (number) => {
+        const track = await getTrackByNumber(number);
+        if (!track) return null;
+        return track.split("/").pop().split("_")[2]?.replace(".mp3", "");
     }
 
     useEffect(() => {
@@ -951,7 +1013,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                 }
             }
             if (event.key === 'v' && event.ctrlKey) {
-                pasteRegion(copiedRegion);
+                pasteRegion(selectedRegion);
                 return;
             } else if (event.key === 'z' && event.ctrlKey) {
                 onRestore();
@@ -992,8 +1054,6 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                         <Tooltip title={"r to record"}>
                             <IconButton onClick={isRecording ? stopRecording : startRecording} sx={{ color: 'white' }}> {isRecording ? <StopIcon sx={{ color: 'red' }} /> : <MicIcon />} </IconButton>
                         </Tooltip>
-                        {/*Delete Button*/}
-                        <IconButton onClick={onDelete} sx={{ color: 'white' }}> <DeleteIcon /> </IconButton>
                         {/* Restore Button */}
                         {bakExists && <Tooltip title={"ctrl+z to restore"}>
                             <IconButton onClick={onRestore} sx={{ color: 'white' }}> <RestoreIcon /> </IconButton>
@@ -1062,7 +1122,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                     {/* Track principale */}
                     <Box sx={{ p: 1, backgroundColor: 'rgb(245, 245, 245)', height: '100%', position: 'relative', zIndex: 1 }}>
                     <Box sx={{ fontSize: 12, fontWeight: 600, mb: 1, color: 'rgb(45, 188, 255)' }}>
-                        MAIN TRACK - {prise.split("_")[0]} {prise.split("_")[1] ? `- ${prise.split("_")[1]}` : ""}
+                        MAIN TRACK {prise?.split("_")[1] ? `- ${prise?.split("_")[1]} ` : ""}
                     </Box>
                     {isRecording && !hasAnyTrack ? (
                         <Box sx={{
@@ -1137,12 +1197,11 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                         </Box>
                     )}
                     </Box>
-
                     {/* Liste des autres pistes audio */}
                     {showOtherTracks && (
                     <Box sx={{ p: 1, backgroundColor: 'rgb(235, 235, 235)', height: '100%', position: 'relative', zIndex: 1 }}>
                         {otherPrises.map((priseNumber, index) => (
-                            priseNumber !== "0" && (
+                            !priseNumber.includes("0_") && !priseNumber.includes(prise.split("_")[0] == "0" ? prise.split("_")[1] : prise.split("_")[0]+"_") && (
                                 <Box key={`${obs[0]}-${obs[1]}-${priseNumber}-${index}`} sx={{ mb: -1.2 }} className={`audio-waveform ${isLoading ? 'loading' : 'loaded'}`}>
                                     <Box sx={{ fontSize: 11, color: 'rgb(120, 120, 120)', mb: 0.5, display: 'flex', alignItems: 'center', gap: 1 }}>
                                         {editingPrise === priseNumber ? (
@@ -1162,44 +1221,63 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                                                             setEditingPrise(null);
                                                         }
                                                     }}
-                                                    placeholder="Nom de la piste"
+                                                    placeholder="Track name"
                                                     sx={{ maxWidth: 240, backgroundColor: 'white' }}
                                                 />
-                                                <IconButton
-                                                    aria-label="Valider le renommage"
-                                                    size="small"
-                                                    onClick={() => editingName?.trim() && editAudio(priseNumber, editingName)}
-                                                    disabled={!editingName?.trim()}
-                                                    sx={{ color: 'rgb(63, 167, 53)' }}
-                                                >
-                                                    <CheckIcon fontSize="small" />
-                                                </IconButton>
-                                                <IconButton
-                                                    aria-label="Annuler le renommage"
-                                                    size="small"
-                                                    onClick={() => setEditingPrise(null)}
-                                                    sx={{ color: 'rgb(168, 85, 85)' }}
-                                                >
-                                                    <CloseIcon fontSize="small" />
-                                                </IconButton>
+
+                                                <Tooltip title="Confirm renaming">
+                                                    <IconButton
+                                                        size="small"
+                                                        onClick={() => editingName?.trim() && editAudio(priseNumber, editingName)}
+                                                        disabled={!editingName?.trim()}
+                                                        sx={{ color: 'rgb(63, 167, 53)' }}
+                                                        >
+                                                        <CheckIcon fontSize="small" />
+                                                    </IconButton>
+                                                </Tooltip>
+
+                                                <Tooltip title="Cancel renaming">
+                                                    <IconButton
+                                                        size="small"
+                                                        onClick={() => setEditingPrise(null)}
+                                                        sx={{ color: 'rgb(168, 85, 85)' }}
+                                                        >
+                                                        <CloseIcon fontSize="small" />
+                                                    </IconButton>
+                                                </Tooltip>
                                             </>
                                         ) : (
                                             <>
                                                 <Box sx={{ mr: 1 }}>
                                                     Track {priseNumber.split("_")[0]} {priseNumber.split("_")[1] ? `- ${priseNumber.split("_")[1]}` : ""}
                                                 </Box>
-                                                <IconButton
-                                                    aria-label="Renommer la piste"
-                                                    onClick={() => {
-                                                        setEditingPrise(priseNumber);
-                                                        setEditingName(priseNumber.split('_')[1] || '');
-                                                    }}
-                                                    sx={{}}
-                                                >
-                                                    <EditIcon />
-                                                </IconButton>
-                                                <IconButton aria-label={`Supprimer la piste ${priseNumber}`} onClick={() => deleteAudio(priseNumber)} sx={{ color: 'rgb(120, 120, 120)' }}> <DeleteIcon /> </IconButton>
-                                                <IconButton aria-label={`Lire la piste ${priseNumber}`} onClick={() => playAudio(priseNumber)} sx={{ color: 'rgb(120, 120, 120)' }}> {secondaryIsPlaying[priseNumber] ? <PauseIcon /> : <PlayArrowIcon />} </IconButton>
+
+                                                <Tooltip title="Switch with maintrack">
+                                                    <IconButton
+                                                        onClick={() => switchMainTrack(priseNumber)}
+                                                        sx={{ color: 'rgb(120, 120, 120)' }}
+                                                    >
+                                                        <AutorenewIcon />
+                                                    </IconButton>
+                                                </Tooltip>
+                                                
+                                                <Tooltip title="Rename track">
+                                                    <IconButton
+                                                        onClick={() => {
+                                                            setEditingPrise(priseNumber);
+                                                            setEditingName(priseNumber.split('_')[1] || '');
+                                                        }}
+                                                        sx={{}}
+                                                    >
+                                                        <EditIcon />
+                                                    </IconButton>
+                                                </Tooltip>
+                                                <Tooltip title="Delete track">
+                                                    <IconButton aria-label={`Supprimer la piste ${priseNumber}`} onClick={() => deleteAudio(priseNumber)} sx={{ color: 'rgb(120, 120, 120)' }}> <DeleteIcon /> </IconButton>
+                                                </Tooltip>
+                                                <Tooltip title="Play track">
+                                                    <IconButton aria-label={`Lire la piste ${priseNumber}`} onClick={() => playAudio(priseNumber)} sx={{ color: 'rgb(120, 120, 120)' }}> {secondaryIsPlaying[priseNumber] ? <PauseIcon /> : <PlayArrowIcon />} </IconButton>
+                                                </Tooltip>
                                             </>
                                         )}
                                     </Box>
