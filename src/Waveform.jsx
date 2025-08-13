@@ -274,7 +274,7 @@ const Waveform = ({
 
     useEffect(() => {
         if (!selectedRegion || selectedRegion.length === 0) return;
-        const [, selectedPrise] = selectedRegion;
+        // Si la sélection vient de cette piste, on garde uniquement la région sélectionnée
         if (selectedPrise === priseNumber) {
             regionsPlugin.getRegions().forEach(region => {
                 if (selectedRegion[0] !== region) {
