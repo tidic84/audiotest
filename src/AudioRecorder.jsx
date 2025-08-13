@@ -602,14 +602,24 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                 regionsPlugin.__dragSelectionWs = ws;
             } catch (_) {}
         }
-        regionsPlugin.on('region-created', handleRegionCreate);
+        // Ensure only one region on main track at a time
+        const wrappedCreate = (region) => {
+            try { regionsPlugin.getRegions().forEach(r => { if (r !== region) r.remove(); }); } catch (_) {}
+            handleRegionCreate(region);
+        };
+        const wrappedClick = (region) => {
+            try { regionsPlugin.getRegions().forEach(r => { if (r !== region) r.remove(); }); } catch (_) {}
+            handleRegionClick(region);
+        };
+
+        regionsPlugin.on('region-created', wrappedCreate);
         regionsPlugin.on('region-updated', handleRegionUpdate);
-        regionsPlugin.on('region-clicked', handleRegionClick);
+        regionsPlugin.on('region-clicked', wrappedClick);
 
         return () => {
-            regionsPlugin.un('region-created', handleRegionCreate);
+            regionsPlugin.un('region-created', wrappedCreate);
             regionsPlugin.un('region-updated', handleRegionUpdate);
-            regionsPlugin.un('region-clicked', handleRegionClick);
+            regionsPlugin.un('region-clicked', wrappedClick);
         };
 
     }, [wavesurfer, regionsPlugin, handleRegionCreate, handleRegionUpdate, handleRegionClick]);

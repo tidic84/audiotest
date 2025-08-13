@@ -142,12 +142,19 @@ const Waveform = ({
 
         if (enableRegions) {
             handleRegionCreate = (region) => {
+                // Always keep only one region on this track
+                try {
+                    regionsPlugin.getRegions().forEach(r => { if (r !== region) r.remove(); });
+                } catch (_) {}
                 if (onRegionSelect) {
                     onRegionSelect([region, priseNumber, regionsPlugin]);
                 }
             };
 
             handleRegionClick = (region) => {
+                try {
+                    regionsPlugin.getRegions().forEach(r => { if (r !== region) r.remove(); });
+                } catch (_) {}
                 if (onRegionSelect) {
                     onRegionSelect([region, priseNumber, regionsPlugin]);
                 }
