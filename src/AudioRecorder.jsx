@@ -1201,7 +1201,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                     {showOtherTracks && (
                     <Box sx={{ p: 1, backgroundColor: 'rgb(235, 235, 235)', height: '100%', position: 'relative', zIndex: 1 }}>
                         {otherPrises.map((priseNumber, index) => (
-                            !priseNumber.includes("0_") && !priseNumber.includes(prise.split("_")[0] == "0" ? prise.split("_")[1] : prise.split("_")[0]+"_") && (
+                            !priseNumber.includes("0_") && !priseNumber.includes(prise?.split("_")[0] == "0" ? prise?.split("_")[1] : prise?.split("_")[0]+"_") && (
                                 <Box key={`${obs[0]}-${obs[1]}-${priseNumber}-${index}`} sx={{ mb: -1.2 }} className={`audio-waveform ${isLoading ? 'loading' : 'loaded'}`}>
                                     <Box sx={{ fontSize: 11, color: 'rgb(120, 120, 120)', mb: 0.5, display: 'flex', alignItems: 'center', gap: 1 }}>
                                         {editingPrise === priseNumber ? (
