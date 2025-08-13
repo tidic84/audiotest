@@ -1,19 +1,14 @@
 import { useRef, useMemo, useEffect, useState } from 'react';
 import { useWavesurfer } from '@wavesurfer/react'
 import RegionsPlugin from 'wavesurfer.js/dist/plugins/regions.esm.js'
-import RecordPlugin from 'wavesurfer.js/dist/plugins/record.esm.js'
 import TimelinePlugin from 'wavesurfer.js/dist/plugins/timeline.esm.js'
 import Box from '@mui/material/Box';
-import IconButton from '@mui/material/IconButton';
-import PauseIcon from '@mui/icons-material/Pause';
-import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 
 const Waveform = ({
     priseNumber,
     obs,
     metadata,
     setCursorTime,
-    cursorTime,
     currentTrack,
     setCurrentTrack,
     maxDuration,
@@ -71,18 +66,16 @@ const Waveform = ({
                 return false;
             }
         };
-        // Essai initial
         let cancelled = false;
         let attempts = 0;
-        const maxAttempts = 30; // ~9s si interval 300ms
+        const maxAttempts = 30;
         const intervalMs = 300;
-        // reset URL si obs change
         setAudioUrl(null);
 
         const tryLoad = async () => {
             const ok = await checkAndSetUrl();
             if (cancelled) return;
-            if (ok) return; // trouvé
+            if (ok) return;
             attempts += 1;
             if (attempts < maxAttempts) {
                 setCacheBust(Date.now());
@@ -167,8 +160,6 @@ const Waveform = ({
 
     }, [wavesurfer, enableRegions, onRegionSelect, maxDuration, priseNumber, setCursorTime, setCurrentTrack, onDurationUpdate]);
 
-    // Si le composant a été monté caché (display:none), forcer une vérification
-    // de largeur et un recalcul lors de l'apparition.
     useEffect(() => {
         const el = waveformRef.current?.parentElement;
         if (!el) return;
@@ -194,7 +185,6 @@ const Waveform = ({
                 color: 'rgba(0, 0, 0, 0.2)'
             });
         } catch (e) {
-            // noop
         }
     }, [enableRegions, regionsPlugin, wavesurfer]);
 
@@ -206,7 +196,6 @@ const Waveform = ({
             setActualDuration(newDuration);
             return;
         }
-        // Fallback: occuper la largeur de la piste principale tant que maxDuration n'est pas calculé
         const fallbackWidth = mainTrackRef?.current?.clientWidth;
         if (fallbackWidth) {
             setActualDuration(fallbackWidth);
@@ -225,7 +214,6 @@ const Waveform = ({
         const snapped = Math.round(time * 10) / 10;
         const trackDuration = wavesurfer.getDuration?.() || 0;
         const clamped = Math.max(0, Math.min(snapped, trackDuration || snapped));
-        // Forcer le seek sans animation pour éviter un retour visuel
         if (typeof wavesurfer.seekTo === 'function' && (wavesurfer.getDuration?.() || 0) > 0) {
             const frac = clamped / wavesurfer.getDuration();
             wavesurfer.seekTo(Math.max(0, Math.min(1, frac)));
@@ -242,8 +230,6 @@ const Waveform = ({
         e.preventDefault();
     };
 
-    // Permettre de placer le curseur par simple clic sur les pistes secondaires
-    // même quand enableRegions est actif, sans gêner le drag de sélection
     const handleContainerClick = (e) => {
         if (!wavesurfer || isMainTrack) return;
         const rect = e.currentTarget.getBoundingClientRect();
@@ -263,29 +249,24 @@ const Waveform = ({
             wavesurfer.setTime(clamped);
         }
         setCurrentTrack?.(priseNumber);
-        // Ne pas stopPropagation ici pour ne pas bloquer la logique des régions
     };
 
     useEffect(() => {
         updateActualDuration();
     }, [maxDuration, mainTrackRef]);
 
-    // Redimensionner la waveform secondaire quand le conteneur principal change de taille
     useEffect(() => {
         if (!wavesurfer) return;
-        // recalcul local de la largeur visuelle pour caler l'échelle
         updateActualDuration();
         try {
             wavesurfer.setOptions({ width: undefined });
         } catch (_) {
-            // noop
         }
     }, [containerWidth, wavesurfer]);
 
     useEffect(() => {
         if (!selectedRegion || selectedRegion.length === 0) return;
         const [, selectedPrise] = selectedRegion;
-        // Si la sélection vient de cette piste, on garde uniquement la région sélectionnée
         if (selectedPrise === priseNumber) {
             regionsPlugin.getRegions().forEach(region => {
                 if (selectedRegion[0] !== region) {
@@ -294,7 +275,6 @@ const Waveform = ({
             });
             return;
         }
-        // Si la sélection vient de la piste principale, on supprime toutes les régions de cette piste secondaire
         if (selectedPrise === "0") {
             regionsPlugin.getRegions().forEach(region => {
                 region.remove();
@@ -302,7 +282,6 @@ const Waveform = ({
         }
     }, [selectedRegion, regionsPlugin, priseNumber])
 
-    // Décorrélation temporelle: on ne force plus le setTime des pistes secondaires depuis le curseur global
 
     const onPlayPause = () => {
         wavesurfer && wavesurfer?.playPause();
