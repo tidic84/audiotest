@@ -19,6 +19,8 @@ const Waveform = ({
   mainTrackRef = null,
   selectedRegion = null,
   onWavesurferReady = null,
+  onRegionsPluginReady = null,
+  onEmptyClick = null,
   gridPx,
   majorGridPx,
   containerWidth,
@@ -42,6 +44,15 @@ const Waveform = ({
     [],
   );
   const plugins = useMemo(() => [regionsPlugin], [regionsPlugin]);
+
+  // Enregistre le regionsPlugin auprès du parent, une seule fois.
+  const pluginRegisteredRef = useRef(false);
+  useEffect(() => {
+    if (regionsPlugin && !pluginRegisteredRef.current) {
+      pluginRegisteredRef.current = true;
+      onRegionsPluginReady?.(regionsPlugin);
+    }
+  }, [regionsPlugin, onRegionsPluginReady]);
   const [cacheBust, setCacheBust] = useState(Date.now());
   const [actualDuration, setActualDuration] = useState(0);
   const [fileExists, setFileExists] = useState(false);
@@ -272,6 +283,7 @@ const Waveform = ({
 
   const handleContainerClick = (e) => {
     if (!wavesurfer || isMainTrack) return;
+    onEmptyClick?.(priseNumber);
     const rect = e.currentTarget.getBoundingClientRect();
     const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width || 0));
     const mainWidth = mainTrackRef?.current?.clientWidth || 0;

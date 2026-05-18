@@ -634,6 +634,19 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
     updateCursorTime(now, { force: true });
   }, [wavesurfer, updateCursorTime]);
 
+  // Map des regionsPlugin des pistes secondaires, indexée par priseNumber.
+  const secondaryRegionsPluginsRef = useRef({});
+
+  const clearSecondaryRegions = useCallback((exceptPriseNumber = null) => {
+    const map = secondaryRegionsPluginsRef.current;
+    Object.entries(map).forEach(([priseNumber, plugin]) => {
+      if (priseNumber === exceptPriseNumber) return;
+      try {
+        plugin?.clearRegions();
+      } catch (_) {}
+    });
+  }, []);
+
   const handleMainWaveformClick = useCallback(
     (e) => {
       if (!wavesurfer || !waveformRef.current) return;
@@ -645,6 +658,12 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
       const rawTime = (x / rect.width) * baseDuration;
       const targetTime = snapEnabled ? snapToGrid(rawTime) : rawTime;
       updateCursorTime(targetTime);
+      // Click simple = on vide les régions partout (principale + secondaires).
+      try {
+        regionsPlugin?.clearRegions();
+      } catch (_) {}
+      clearSecondaryRegions();
+      setSelectedRegion([]);
       try {
         wavesurfer.setTime(targetTime);
       } catch (_) {}
@@ -656,6 +675,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
       snapEnabled,
       snapToGrid,
       updateCursorTime,
+      clearSecondaryRegions,
     ],
   );
 
@@ -669,6 +689,18 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
   }, [wavesurfer, handleReady, handleLoading, handleTimeUpdate]);
 
   const disableDragSelectionRef = useRef(null);
+  // Timestamp du dernier "region-update" : sert à distinguer un déplacement
+  // de région existante d'une vraie création par drag-selection.
+  const lastRegionUpdateAtRef = useRef(0);
+
+  const handleSecondaryEmptyClick = useCallback(() => {
+    // Click simple = on vide les régions partout (principale + secondaires).
+    try {
+      regionsPlugin?.clearRegions();
+    } catch (_) {}
+    clearSecondaryRegions();
+    setSelectedRegion([]);
+  }, [regionsPlugin, clearSecondaryRegions]);
 
   useEffect(() => {
     // Toujours désactiver avant d'activer
@@ -684,11 +716,12 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
           drag: true,
           color: "rgba(0, 0, 0, 0.2)",
         },
-        1,
+        10,
       );
       regionsPlugin.on("region-created", handleRegionCreate);
       regionsPlugin.on("region-updated", handleRegionUpdate);
       regionsPlugin.on("region-clicked", handleRegionClick);
+      regionsPlugin.on("region-update", handleRegionUpdating);
     }
     return () => {
       if (disableDragSelectionRef.current) {
@@ -700,7 +733,29 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
     };
   }, [wavesurfer, regionsPlugin]);
 
+  // Émis pendant qu'on déplace/redimensionne une région DÉJÀ sauvegardée.
+  const handleRegionUpdating = () => {
+    lastRegionUpdateAtRef.current = Date.now();
+  };
+
+  // Durée minimale de la region (pour eviter le bug qui supp la selection)
+  const MIN_REGION_DURATION = 0.05;
+
   const handleRegionCreate = (region) => {
+    // Si un déplacement de région a eu lieu juste avant (< 250 ms), (region fantome donc suppression de la région créée)
+    if (Date.now() - lastRegionUpdateAtRef.current < 250) {
+      try {
+        region.remove();
+      } catch (_) {}
+      return;
+    }
+    // Rejette les sélections trop courtes (mouvement de souris accidentel).
+    if (region.end - region.start < MIN_REGION_DURATION) {
+      try {
+        region.remove();
+      } catch (_) {}
+      return;
+    }
     if (handleRegionSelect) {
       // Identifie explicitement la piste principale comme "0"
       handleRegionSelect([region, "0", regionsPlugin]);
@@ -983,10 +1038,29 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
       const sortedPrises = newPrises.sort(
         (a, b) => a.split("_")[0] - b.split("_")[0],
       );
-      setOtherPrises(sortedPrises.filter((prise) => !prise.includes(".json")));
+      const filtered = sortedPrises.filter((p) => !p.includes(".json"));
 
-      setTrackDurations({});
-      setSelectedRegion([]);
+      // Évite un setState (donc un re-render) si la liste n'a pas changé.
+      setOtherPrises((prev) => {
+        if (
+          prev.length === filtered.length &&
+          prev.every((p, i) => p === filtered[i])
+        ) {
+          return prev;
+        }
+        return filtered;
+      });
+
+      // Ne pas vider trackDurations : on ne retire que les entrées
+      // dont la piste n'existe plus, pour ne pas faire retomber
+      // maxDuration à 0 et déclencher le tremblement visuel.
+      setTrackDurations((prev) => {
+        const next = {};
+        for (const key of filtered) {
+          if (prev[key] !== undefined) next[key] = prev[key];
+        }
+        return next;
+      });
     } else {
       setOtherPrises([]);
       setTrackDurations({});
@@ -1536,7 +1610,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
               }}
             >
               {otherPrises.map(
-                (priseNumber, index) =>
+                (priseNumber) =>
                   !priseNumber.includes("0_") &&
                   !priseNumber.includes(
                     prise?.split("_")[0] == "0"
@@ -1544,7 +1618,7 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                       : prise?.split("_")[0] + "_",
                   ) && (
                     <Box
-                      key={`${obs[0]}-${obs[1]}-${priseNumber}-${index}`}
+                      key={`${obs[0]}-${obs[1]}-${priseNumber}`}
                       sx={{ mb: -1.2 }}
                       className={`audio-waveform ${isLoading ? "loading" : "loaded"}`}
                     >
@@ -1694,6 +1768,11 @@ const AudioRecorder = ({ audioUrl, setAudioUrl, obs, metadata }) => {
                         gridPx={gridPx}
                         majorGridPx={majorGridPx}
                         selectedRegion={selectedRegion}
+                        onRegionsPluginReady={(plugin) => {
+                          secondaryRegionsPluginsRef.current[priseNumber] =
+                            plugin;
+                        }}
+                        onEmptyClick={handleSecondaryEmptyClick}
                         onWavesurferReady={(ws) => {
                           setWaveformRefs((prev) => ({
                             ...prev,

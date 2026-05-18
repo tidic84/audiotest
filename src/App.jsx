@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useMemo } from "react";
 import Box from "@mui/material/Box";
 import Stack from "@mui/material/Stack";
 import { i18nContext } from "pankosmia-rcl";
@@ -34,9 +34,12 @@ function App() {
   );
   const [audioPath, setAudioPath] = useState("./audio/");
   const [obs, setObs] = useState([1, 0]);
-  const metadata = {
-    local_path: "_local_/_local_/obst/",
-  };
+  // Référence stable : sinon chaque setAudioUrl re-render App, recrée
+  // metadata, et Waveform.jsx recharge tous les .wav (= flash visuel).
+  const metadata = useMemo(
+    () => ({ local_path: "_local_/_local_/obst/" }),
+    [],
+  );
 
   const i18nRef = useRef(translations);
 
