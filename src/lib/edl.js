@@ -54,3 +54,45 @@ export function computeVirtualPeaks(buffer, edl, targetLen) {
     }
     return peaks;
 }
+
+export function cutRange(edl, vStart, vEnd) {
+    if (vEnd <= vStart) return edl;
+    const result = [];
+    let acc = 0;
+    for (const seg of edl) {
+        const segDur = seg.srcEnd - seg.srcStart;
+        const segVStart = acc;
+        const segVEnd = acc + segDur;
+        if (segVEnd <= vStart || segVStart >= vEnd) {
+            result.push(seg); // hors zone coupée
+        } else {
+            if (segVStart < vStart) {
+                result.push(makeSegment(
+                    seg.srcStart,
+                    seg.srcStart + (vStart - segVStart),
+                ));
+            }
+            if (segVEnd > vEnd) {
+                result.push(makeSegment(
+                    seg.srcStart + (vEnd - segVStart),
+                    seg.srcEnd,
+                ));
+            }
+        }
+        acc += segDur;
+    }
+    return result;
+}
+
+export function virtualToSource(edl, vTime) {
+    let acc = 0;
+    for (const seg of edl) {
+        const segDur = seg.srcEnd - seg.srcStart;
+        if (vTime <= acc + segDur) {
+            return { srcTime: seg.srcStart + (vTime - acc) };
+        }
+        acc += segDur;
+    }
+    const last = edl[edl.length - 1];
+    return { srcTime: last.srcEnd };
+}

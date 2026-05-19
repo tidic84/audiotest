@@ -1,11 +1,14 @@
-import { useMemo, useCallback } from "react";
-import WavesurferPlayer from "@wavesurfer/react";
+import { useMemo, useState, useEffect, useRef } from "react";
+import { useWavesurfer } from "@wavesurfer/react";
+import RegionsPlugin from "wavesurfer.js/dist/plugins/regions.esm.js";
 import Box from "@mui/material/Box";
 import Stack from "@mui/material/Stack";
+import Divider from '@mui/material/Divider';
 import IconButton from "@mui/material/IconButton";
 import ContentCutIcon from "@mui/icons-material/ContentCut";
 import DeleteIcon from "@mui/icons-material/Delete";
-import Divider from '@mui/material/Divider';
+import EditIcon from "@mui/icons-material/Edit";
+
 import { virtualDuration, computeVirtualPeaks } from "./lib/edl";
 
 export default function TrackView({
@@ -14,7 +17,7 @@ export default function TrackView({
     isSelected,
     onSeek,
     onDelete,
-    onDemoCut,
+    onDemoCut, // <-- A remplacer
     playheadTime, // temps virtuel actuel sur cette piste (null si pas en lecture)
 }) {
     const dur = useMemo(() => virtualDuration(track), [track]);
@@ -23,29 +26,97 @@ export default function TrackView({
         () => computeVirtualPeaks(track.buffer, track.edl, 4000),
         [track],
     );
-    // Stabilise la référence du tableau passé à WavesurferPlayer pour
-    // éviter de re-déclencher son setOptions interne à chaque render.
+    // Stabilise la référence du tableau pour ne pas re-déclencher son setOptions interne à chaque render.
     const peaksProp = useMemo(() => [peaks], [peaks]);
 
-    // Le clic de wavesurfer donne un x relatif (0..1). On le convertit
-    // en temps virtuel et on remonte (trackId, time) au parent.
-    const handleClick = useCallback(
-        (_ws, relativeX) => onSeek?.(track.id, relativeX * dur),
-        [onSeek, track.id, dur],
-    );
+    const containerRef = useRef(null);
+    const [selection, setSelection] = useState(null);
+
+    const regionsPlugin = useMemo(() => {
+        const plugin = RegionsPlugin.create();
+        plugin.on("region-created", (region) => {
+            plugin.getRegions().forEach((r) => {
+                if (r.id !== region.id) r.remove();
+            });
+            setSelection({ start: region.start, end: region.end });
+            // Laisse passer le prochain pointerdown vers le wrapper pour recréer une zone par-dessus.
+            if (region.element) {
+                region.element.style.pointerEvents = "none";
+            }
+        });
+        plugin.on("region-updated", (region) => {
+            setSelection({ start: region.start, end: region.end });
+        });
+        return plugin;
+    }, []);
+
+    const plugins = useMemo(() => [regionsPlugin], [regionsPlugin]);
+
+    const { wavesurfer } = useWavesurfer({
+        container: containerRef,
+        height: 80,
+        waveColor: "#4a9eff",
+        progressColor: "#1565c0",
+        peaks: peaksProp,
+        duration: dur,
+        plugins,
+    });
+
+    useEffect(() => {
+        if (!wavesurfer) return;
+        const unsub = regionsPlugin.enableDragSelection({
+            color: "rgba(255, 100, 0, 0.2)",
+            drag: false,
+            resize: false,
+        });
+        return () => { unsub?.(); };
+    }, [wavesurfer, regionsPlugin]);
+
+    // Seek manuel : enableDragSelection appelle preventDefault sur pointerdown,
+    // ce qui supprime l'event click. On reconstruit la logique click-to-seek via pointerdown/up.
+    useEffect(() => {
+        if (!wavesurfer) return;
+        const wrapper = wavesurfer.getWrapper();
+        if (!wrapper) return;
+
+        let downX = null;
+        let dragged = false;
+        const THRESHOLD = 3;
+
+        const onDown = (e) => {
+            downX = e.clientX;
+            dragged = false;
+        };
+        const onMove = (e) => {
+            if (downX === null) return;
+            if (Math.abs(e.clientX - downX) > THRESHOLD) dragged = true;
+        };
+        const onUp = (e) => {
+            if (downX !== null && !dragged) {
+                const rect = wrapper.getBoundingClientRect();
+                const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                wavesurfer.seekTo(ratio);
+                onSeek?.(track.id, ratio * dur);
+            }
+            downX = null;
+            dragged = false;
+        };
+
+        wrapper.addEventListener("pointerdown", onDown);
+        document.addEventListener("pointermove", onMove);
+        document.addEventListener("pointerup", onUp);
+        return () => {
+            wrapper.removeEventListener("pointerdown", onDown);
+            document.removeEventListener("pointermove", onMove);
+            document.removeEventListener("pointerup", onUp);
+        };
+    }, [wavesurfer, onSeek, track.id, dur]);
 
     return (
         <Box sx={{ border: isSelected ? "1px solid #1565c0" : "1px solid #777", borderTop: isSelected ? "0.1px solid #1565c0" : "0px solid #fff"}}>
             <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={5}>
                 <Box sx={{ width: `${widthPct}%`, position: "relative", overflow: "hidden", borderRadius: 1 }}>
-                    <WavesurferPlayer
-                        height={80}
-                        waveColor="#4a9eff"
-                        progressColor="#1565c0"
-                        peaks={peaksProp}
-                        duration={dur}
-                        onClick={handleClick}
-                    />
+                    <Box ref={containerRef} />
                     {playheadTime != null && dur > 0 && (
                         <Box
                             sx={{
@@ -74,15 +145,15 @@ export default function TrackView({
                         <Stack direction="row" margin={0}>
                             <IconButton
                                 size="small"
-                                onClick={onDemoCut}
-                                title="Démo : couper 1s->2s"
+                                // onClick={}
+                                title="Rename track"
                             >
-                                <ContentCutIcon fontSize="small" />
+                                <EditIcon fontSize="small" />
                             </IconButton>
                             <IconButton
                                 size="small"
                                 onClick={onDelete}
-                                title="Supprimer la piste"
+                                title="Delete track"
                             >
                                 <DeleteIcon fontSize="small" />
                             </IconButton>
