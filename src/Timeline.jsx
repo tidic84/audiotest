@@ -39,8 +39,12 @@ function pickTickInterval(duration) {
     return 60
 }
 
-function formatTime(s) {
+ export function formatTime(s, miliSeconds = false) {
     const m = Math.floor(s / 60);
     const sec = Math.floor(s % 60);
+    const ms = Math.floor((s % 1) * 1000);
+    if (miliSeconds) {
+        return `${m}:${String(sec).padStart(2, "0")}.${String(ms).padStart(3, "0")}`;
+    }
     return `${m}:${String(sec).padStart(2, "0")}`;
 }
