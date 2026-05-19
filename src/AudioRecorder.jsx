@@ -2,9 +2,12 @@ import { useState, useRef, useMemo } from "react";
 import Box from "@mui/material/Box";
 import Stack from "@mui/material/Stack";
 import IconButton from "@mui/material/IconButton";
-import MicIcon from "@mui/icons-material/Mic";
-import StopIcon from "@mui/icons-material/Stop";
-import PlayArrowIcon from "@mui/icons-material/PlayArrow";
+import MicIcon from "@mui/icons-material/MicNoneOutlined";
+import StopIcon from "@mui/icons-material/StopOutlined";
+import PlayArrowIcon from "@mui/icons-material/PlayArrowOutlined";
+import ContentCopyIcon from "@mui/icons-material/ContentCopyOutlined";
+import ContentPasteIcon from "@mui/icons-material/ContentPasteOutlined";
+import ContentCutIcon from "@mui/icons-material/ContentCutOutlined";
 
 import TrackView from "./TrackView";
 import { makeTrack, makeSegment, virtualDuration } from "./lib/edl";
@@ -18,12 +21,16 @@ import { useProjectPersistence } from "./hooks/useProjectPersistence";
 import { useRecorder } from "./hooks/useRecorder";
 import Timeline from "./Timeline";
 import { formatTime } from "./Timeline";
+import { cutRange, extractRange, insertAt } from "./lib/edl";
+
 
 export default function AudioRecorder({ audioUrl, obs, metadata }) {
     const audioCtxRef = useRef(null);
     const [tracks, setTracks] = useState([]);
     const [isPlaying, setIsPlaying] = useState(false);
     const [selection, setSelection] = useState(null); // { trackId, time }
+    const [regionSelection, setRegionSelection] = useState(null); // { trackId, start, end }
+    const [clipboard, setClipboard] = useState(null); // { buffer, segments }
     const [playerHeadTime, setPlayerHeadTime] = useState(0);
     const playStartedAtRef = useRef(0);
     const playEndsAtRef = useRef(0);
@@ -35,10 +42,10 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
         () =>
             metadata?.local_path && obs
                 ? projectPaths({
-                      localPath: metadata.local_path,
-                      chapter: obs[0],
-                      paragraph: obs[1],
-                  })
+                    localPath: metadata.local_path,
+                    chapter: obs[0],
+                    paragraph: obs[1],
+                })
                 : null,
         [metadata?.local_path, obs],
     );
@@ -112,8 +119,7 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
         setIsPlaying(false);
     };
 
-    // Clic sur une waveform → on retient piste + position, et on relance
-    // la lecture depuis ce point si on est en train de jouer.
+    // Clic sur une waveform ->> on retient piste + position, et on relance la lecture depuis ce point si on est en train de jouer.
     const handleSeek = (trackId, time) => {
         setSelection({ trackId, time });
         if (isPlaying) startPlayback(trackId, time);
@@ -122,22 +128,39 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
     const deleteTrack = async (id) => {
         setTracks((ts) => ts.filter((t) => t.id !== id));
         if (selection?.trackId === id) setSelection(null);
-        if (paths) await deleteAudioFile(paths, id).catch(() => {});
+        if (paths) await deleteAudioFile(paths, id).catch(() => { });
     };
 
-    const demoCut = (id) => {
-        setTracks((ts) =>
-            ts.map((t) => {
-                if (t.id !== id || t.buffer.duration < 2.1) return t;
-                return {
-                    ...t,
-                    edl: [
-                        makeSegment(0, 1),
-                        makeSegment(2, t.buffer.duration),
-                    ],
-                };
-            }),
-        );
+
+    const cutSelection = () => {
+        if (!regionSelection) return;
+        const { trackId, start, end } = regionSelection;
+        setTracks(ts => ts.map(t =>
+            t.id === trackId ? { ...t, edl: cutRange(t.edl, start, end) } : t
+        ));
+        setRegionSelection(null);
+    };
+
+    const copySelection = () => {
+        if (!regionSelection) return;
+        const { trackId, start, end } = regionSelection;
+        const track = tracks.find(t => t.id === trackId);
+        if (!track) return;
+        // Tag chaque segment extrait avec le buffer source : permet de paste
+        // dans une piste avec un autre buffer (le segment garde sa réf d'origine).
+        const segs = extractRange(track.edl, start, end, track.buffer);
+        if (!segs.length) return;
+        setClipboard({ segments: segs });
+    };
+
+    const pasteAtCursor = () => {
+        if (!clipboard || !selection) return;
+        const { trackId, time } = selection;
+        setTracks(ts => ts.map(t =>
+            t.id === trackId
+                ? { ...t, edl: insertAt(t.edl, time, clipboard.segments) }
+                : t
+        ));
     };
 
     return (
@@ -145,25 +168,50 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
             <Stack
                 direction="row"
                 spacing={1}
-                sx={{ border: "1px solid #777",alignItems: "center" }}
+                sx={{ border: "1px solid #777", alignItems: "center" }}
             >
-                <Box sx={{ fontSize: 12, color: "#666", paddingLeft: 2}}>
+                <Box sx={{ fontSize: 12, color: "#666", paddingLeft: 2 }}>
                     {playerHeadTime > 0 ? formatTime(playerHeadTime, true) : "0:00:000"}
                 </Box>
-                
+
                 <IconButton
+                    size="small"
                     onClick={isPlaying ? stop : play}
                     disabled={tracks.length === 0}
-                    color="primary"
                 >
                     {isPlaying ? <StopIcon /> : <PlayArrowIcon />}
                 </IconButton>
                 <IconButton
+                    size="small"
                     onClick={isRecording ? stopRecording : startRecording}
                     color={isRecording ? "error" : "default"}
                     disabled={!paths}
                 >
                     {isRecording ? <StopIcon /> : <MicIcon />}
+                </IconButton>
+                <IconButton
+                    size="small"
+                    onClick={copySelection}
+                    disabled={!regionSelection}
+                    title="Copy"
+                >
+                    <ContentCopyIcon fontSize="small" />
+                </IconButton>
+                <IconButton
+                    size="small"
+                    onClick={pasteAtCursor}
+                    disabled={!clipboard || !selection}
+                    title="Paste"
+                >
+                    <ContentPasteIcon fontSize="small" />
+                </IconButton>
+                <IconButton
+                    size="small"
+                    onClick={cutSelection}
+                    disabled={!regionSelection}
+                    title="Cut"
+                >
+                    <ContentCutIcon fontSize="small" />
                 </IconButton>
             </Stack>
             {/* <Timeline projectDuration={projectDuration} /> */}
@@ -186,6 +234,8 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
                         onDelete={() => deleteTrack(t.id)}
                         onDemoCut={() => demoCut(t.id)}
                         playheadTime={playheadTime}
+                        regionSelection={regionSelection}
+                        onRegionChange={setRegionSelection}
                     />
                 );
             })}

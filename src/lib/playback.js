@@ -8,7 +8,7 @@ export function scheduleTracks(ctx, tracks, leadSeconds = 0.05) {
         let when = startAt;
         for (const seg of t.edl) {
             const src = ctx.createBufferSource();
-            src.buffer = t.buffer;
+            src.buffer = seg.buffer || t.buffer;
             src.connect(ctx.destination);
             const dur = seg.srcEnd - seg.srcStart;
             src.start(when, seg.srcStart, dur);
@@ -35,7 +35,7 @@ export function scheduleTrackFrom(ctx, track, vStart = 0, leadSeconds = 0.05) {
             const srcStart = seg.srcStart + offsetInSeg;
             const durToPlay = seg.srcEnd - srcStart;
             const src = ctx.createBufferSource();
-            src.buffer = track.buffer;
+            src.buffer = seg.buffer || track.buffer;
             src.connect(ctx.destination);
             src.start(when, srcStart, durToPlay);
             when += durToPlay;

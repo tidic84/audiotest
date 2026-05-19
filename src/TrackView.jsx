@@ -5,9 +5,8 @@ import Box from "@mui/material/Box";
 import Stack from "@mui/material/Stack";
 import Divider from '@mui/material/Divider';
 import IconButton from "@mui/material/IconButton";
-import ContentCutIcon from "@mui/icons-material/ContentCut";
-import DeleteIcon from "@mui/icons-material/Delete";
-import EditIcon from "@mui/icons-material/Edit";
+import DeleteIcon from "@mui/icons-material/DeleteOutlined";
+import EditIcon from "@mui/icons-material/EditOutlined";
 
 import { virtualDuration, computeVirtualPeaks } from "./lib/edl";
 
@@ -19,6 +18,8 @@ export default function TrackView({
     onDelete,
     onDemoCut, // <-- A remplacer
     playheadTime, // temps virtuel actuel sur cette piste (null si pas en lecture)
+    regionSelection,
+    onRegionChange,
 }) {
     const dur = useMemo(() => virtualDuration(track), [track]);
     const widthPct = projectDuration > 0 ? (dur / projectDuration) * 100 : 100;
@@ -32,31 +33,39 @@ export default function TrackView({
     const containerRef = useRef(null);
     const [selection, setSelection] = useState(null);
 
-    const regionsPlugin = useMemo(() => {
-        const plugin = RegionsPlugin.create();
-        plugin.on("region-created", (region) => {
-            plugin.getRegions().forEach((r) => {
+    const regionsPlugin = useMemo(() => RegionsPlugin.create(), []);
+
+    useEffect(() => {
+        const unsubCreated = regionsPlugin.on("region-created", (region) => {
+            regionsPlugin.getRegions().forEach((r) => {
                 if (r.id !== region.id) r.remove();
             });
             setSelection({ start: region.start, end: region.end });
-            // Laisse passer le prochain pointerdown vers le wrapper pour recréer une zone par-dessus.
-            if (region.element) {
-                region.element.style.pointerEvents = "none";
-            }
+            onRegionChange?.({ trackId: track.id, start: region.start, end: region.end });
         });
-        plugin.on("region-updated", (region) => {
+        const unsubUpdated = regionsPlugin.on("region-updated", (region) => {
             setSelection({ start: region.start, end: region.end });
+            onRegionChange?.({ trackId: track.id, start: region.start, end: region.end });
         });
-        return plugin;
-    }, []);
+        return () => { unsubCreated(); unsubUpdated(); };
+    }, [regionsPlugin, onRegionChange, track.id]);
+
+    // Vide les régions de cette piste quand la sélection courante n'est pas la sienne
+    // (autre piste active OU sélection effacée par un click).
+    useEffect(() => {
+        if (regionSelection?.trackId !== track.id) {
+            regionsPlugin.getRegions().forEach((r) => r.remove());
+            setSelection(null);
+        }
+    }, [regionSelection, track.id, regionsPlugin]);
 
     const plugins = useMemo(() => [regionsPlugin], [regionsPlugin]);
 
     const { wavesurfer } = useWavesurfer({
         container: containerRef,
         height: 80,
-        waveColor: "#4a9eff",
-        progressColor: "#1565c0",
+        waveColor: "rgb(34, 173, 197)",
+        progressColor: "rgb(64, 107, 114)",
         peaks: peaksProp,
         duration: dur,
         plugins,
@@ -65,12 +74,25 @@ export default function TrackView({
     useEffect(() => {
         if (!wavesurfer) return;
         const unsub = regionsPlugin.enableDragSelection({
-            color: "rgba(255, 100, 0, 0.2)",
-            drag: false,
-            resize: false,
+            color: "rgba(0, 0, 0, 0.2)",
+            drag: true,
+            resize: true,
         });
         return () => { unsub?.(); };
     }, [wavesurfer, regionsPlugin]);
+
+    // Escape : efface la sélection (utile quand la région couvre toute la zone et qu'on ne peut plus draguer une zone vide pour la recréer).
+    useEffect(() => {
+        const onKey = (e) => {
+            if (e.key === "Escape") {
+                regionsPlugin.getRegions().forEach((r) => r.remove());
+                setSelection(null);
+                onRegionChange?.(null);
+            }
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+    }, [regionsPlugin, onRegionChange]);
 
     // Seek manuel : enableDragSelection appelle preventDefault sur pointerdown,
     // ce qui supprime l'event click. On reconstruit la logique click-to-seek via pointerdown/up.
@@ -97,6 +119,10 @@ export default function TrackView({
                 const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
                 wavesurfer.seekTo(ratio);
                 onSeek?.(track.id, ratio * dur);
+                // Click simple = on efface la région.
+                regionsPlugin.getRegions().forEach((r) => r.remove());
+                setSelection(null);
+                onRegionChange?.(null);
             }
             downX = null;
             dragged = false;
@@ -110,10 +136,10 @@ export default function TrackView({
             document.removeEventListener("pointermove", onMove);
             document.removeEventListener("pointerup", onUp);
         };
-    }, [wavesurfer, onSeek, track.id, dur]);
+    }, [wavesurfer, onSeek, track.id, dur, regionsPlugin, onRegionChange]);
 
     return (
-        <Box sx={{ border: isSelected ? "1px solid #1565c0" : "1px solid #777", borderTop: isSelected ? "0.1px solid #1565c0" : "0px solid #fff"}}>
+        <Box sx={{ border: isSelected ? "1px solid #1565c0" : "1px solid #777", borderTop: isSelected ? "0.1px solid #1565c0" : "0px solid #fff" }}>
             <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={5}>
                 <Box sx={{ width: `${widthPct}%`, position: "relative", overflow: "hidden", borderRadius: 1 }}>
                     <Box ref={containerRef} />
@@ -139,7 +165,7 @@ export default function TrackView({
                         paddingRight={7}
                         paddingLeft={1}
                     >
-                        <Box  marginLeft={0.7} overflow="hidden" minWidth={60} maxWidth={60}>
+                        <Box marginLeft={0.7} overflow="hidden" minWidth={60} maxWidth={60}>
                             {track.name}
                         </Box>
                         <Stack direction="row" margin={0}>
