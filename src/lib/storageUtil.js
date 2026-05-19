@@ -1,8 +1,5 @@
-// Persistance des pistes via le backend pithekos / burrito.
-//
 // Audio  : audio_content/{CC}-{PP}/{CC}-{PP}_{trackId}.webm   (blob MediaRecorder brut)
 // Projet : audio_content/{CC}-{PP}/{CC}-{PP}_project.json
-//          → { tracks: [{ id, name, edl }] }  (sans le buffer, il est sur disque)
 
 export function projectPaths({ localPath, chapter, paragraph }) {
     const cc = String(chapter).padStart(2, "0");

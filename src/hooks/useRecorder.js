@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { makeTrack } from "../lib/edl";
-import { saveAudioBlob } from "../lib/pithekosStorage";
+import { saveAudioBlob } from "../lib/storageUtil";
 
 // Encapsule MediaRecorder + persistance du blob + ajout d'une piste.
 // L'état d'enregistrement et les refs (recorder, chunks) sont internes au hook.
@@ -29,7 +29,7 @@ export function useRecorder({ paths, audioCtxRef, setTracks }) {
             await saveAudioBlob(paths, id, blob);
             setTracks((prev) => [
                 ...prev,
-                makeTrack(buffer, `Piste ${prev.length + 1}`, id),
+                makeTrack(buffer, `Track - ${prev.length + 1}`, id),
             ]);
         };
         rec.start();

@@ -5,7 +5,7 @@ import {
     saveProject,
     loadAudioBuffer,
     saveAudioBlob,
-} from "../lib/pithekosStorage";
+} from "../lib/storageUtil";
 
 // Synchronise `tracks` avec le backend pithekos :
 //   - au mount : charge `_project.json`, re-décode chaque .webm en AudioBuffer.

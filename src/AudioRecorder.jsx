@@ -13,14 +13,17 @@ import {
     projectPaths,
     saveAudioBlob,
     deleteAudioFile,
-} from "./lib/pithekosStorage";
+} from "./lib/storageUtil";
 import { useProjectPersistence } from "./hooks/useProjectPersistence";
 import { useRecorder } from "./hooks/useRecorder";
+import Timeline from "./Timeline";
 
 export default function AudioRecorder({ audioUrl, obs, metadata }) {
     const audioCtxRef = useRef(null);
     const [tracks, setTracks] = useState([]);
     const [isPlaying, setIsPlaying] = useState(false);
+    const playStartedAtRef = useRef(0);
+    const [playerHeadTime, setPlayerHeadTime] = useState(0);
 
     const sourcesRef = useRef([]);
 
@@ -36,6 +39,11 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
         [metadata?.local_path, obs],
     );
 
+    const projectDuration = useMemo(
+        () => tracks.reduce((max, t) => Math.max(max, virtualDuration(t)), 0),
+        [tracks],
+    )
+
     useProjectPersistence({ paths, audioCtxRef, audioUrl, tracks, setTracks });
     const { isRecording, startRecording, stopRecording } = useRecorder({
         paths,
@@ -43,19 +51,34 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
         setTracks,
     });
 
+    const tick = () => {
+      const elapsed = audioCtxRef.current.currentTime - playStartedAtRef.current;
+      if (elapsed >= projectDuration) {
+          setPlayheadTime(0);
+          setIsPlaying(false);
+          rafRef.current = null;
+          return;
+      }
+      setPlayheadTime(elapsed);
+      rafRef.current = requestAnimationFrame(tick);
+  };
+
     const play = () => {
-        if (isPlaying || tracks.length === 0) return;
-        sourcesRef.current = scheduleTracks(audioCtxRef.current, tracks);
-        setIsPlaying(true);
-        const maxDur = Math.max(...tracks.map(virtualDuration));
-        setTimeout(() => setIsPlaying(false), maxDur * 1000 + 100);
-    };
+      if (isPlaying || tracks.length === 0) return;
+      sourcesRef.current = scheduleTracks(audioCtxRef.current, tracks);
+      playStartedAtRef.current = audioCtxRef.current.currentTime + 0.05;
+      setIsPlaying(true);
+      rafRef.current = requestAnimationFrame(tick);
+  };
 
     const stop = () => {
-        stopSources(sourcesRef.current);
-        sourcesRef.current = [];
-        setIsPlaying(false);
-    };
+      stopSources(sourcesRef.current);
+      sourcesRef.current = [];
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+      setPlayheadTime(0);
+      setIsPlaying(false);
+  };
 
     const deleteTrack = async (id) => {
         setTracks((ts) => ts.filter((t) => t.id !== id));
@@ -95,11 +118,12 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
                     {isRecording ? <StopIcon /> : <MicIcon />}
                 </IconButton>
             </Stack>
-
+            <Timeline projectDuration={projectDuration} />
             {tracks.map((t) => (
                 <TrackView
                     key={t.id}
                     track={t}
+                    projectDuration={projectDuration}
                     onDelete={() => deleteTrack(t.id)}
                     onDemoCut={() => demoCut(t.id)}
                 />
