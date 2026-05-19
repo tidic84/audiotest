@@ -146,9 +146,10 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
         const { trackId, start, end } = regionSelection;
         const track = tracks.find(t => t.id === trackId);
         if (!track) return;
-        // Tag chaque segment extrait avec le buffer source : permet de paste
-        // dans une piste avec un autre buffer (le segment garde sa réf d'origine).
-        const segs = extractRange(track.edl, start, end, track.buffer);
+        // Tag chaque segment extrait avec le buffer source + l'id de la piste source.
+        // - le buffer permet le paste runtime (réf directe)
+        // - l'id permet de ré-attacher le buffer après un reload de projet
+        const segs = extractRange(track.edl, start, end, track.buffer, track.id);
         if (!segs.length) return;
         setClipboard({ segments: segs });
     };

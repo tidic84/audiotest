@@ -40,8 +40,19 @@ export function useProjectPersistence({
                         ),
                     })),
                 );
+                // Ré-attache les réfs runtime des segments cross-pistes via leur `bufferTrackId`.
+                const buffersById = new Map(loaded.map((t) => [t.id, t.buffer]));
+                const resolved = loaded.map((t) => ({
+                    ...t,
+                    edl: t.edl.map((seg) => ({
+                        ...seg,
+                        buffer: seg.bufferTrackId
+                            ? buffersById.get(seg.bufferTrackId) || null
+                            : null,
+                    })),
+                }));
                 if (!cancelled) {
-                    setTracks(loaded);
+                    setTracks(resolved);
                     setProjectLoaded(true);
                 }
                 return;
@@ -72,7 +83,12 @@ export function useProjectPersistence({
         if (!paths || !projectLoaded || tracks.length === 0) return;
         const handle = setTimeout(() => {
             saveProject(paths, {
-                tracks: tracks.map(({ buffer, ...rest }) => rest),
+                tracks: tracks.map(({ buffer, edl, ...rest }) => ({
+                    ...rest,
+                    // On strip seg.buffer (AudioBuffer non sérialisable) ; bufferTrackId suffit
+                    // pour ré-attacher la réf au reload.
+                    edl: edl.map(({ buffer: _b, ...segRest }) => segRest),
+                })),
             });
         }, 500);
         return () => clearTimeout(handle);

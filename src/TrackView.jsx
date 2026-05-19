@@ -1,6 +1,7 @@
 import { useMemo, useState, useEffect, useRef } from "react";
 import { useWavesurfer } from "@wavesurfer/react";
 import RegionsPlugin from "wavesurfer.js/dist/plugins/regions.esm.js";
+import TimelinePlugin from "wavesurfer.js/dist/plugins/timeline.esm.js";
 import Box from "@mui/material/Box";
 import Stack from "@mui/material/Stack";
 import Divider from '@mui/material/Divider';
@@ -33,6 +34,21 @@ export default function TrackView({
     const [selection, setSelection] = useState(null);
 
     const regionsPlugin = useMemo(() => RegionsPlugin.create(), []);
+    const timelinePlugin = useMemo(
+    () =>
+      TimelinePlugin.create({
+        height: 100,
+        insertPosition: "beforebegin",
+        timeInterval: 0.2,
+        primaryLabelInterval: 5,
+        secondaryLabelInterval: 1,
+        style: {
+          fontSize: "0px",
+          color: "#2D5B88",
+        },
+      }),
+    [],
+  );
 
     useEffect(() => {
         const unsubCreated = regionsPlugin.on("region-created", (region) => {
@@ -58,7 +74,7 @@ export default function TrackView({
         }
     }, [regionSelection, track.id, regionsPlugin]);
 
-    const plugins = useMemo(() => [regionsPlugin], [regionsPlugin]);
+    const plugins = useMemo(() => [regionsPlugin, timelinePlugin], [regionsPlugin, timelinePlugin]);
 
     const { wavesurfer } = useWavesurfer({
         container: containerRef,
