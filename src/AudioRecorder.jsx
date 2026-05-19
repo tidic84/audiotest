@@ -232,7 +232,6 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
                         isSelected={isSel}
                         onSeek={handleSeek}
                         onDelete={() => deleteTrack(t.id)}
-                        onDemoCut={() => demoCut(t.id)}
                         playheadTime={playheadTime}
                         regionSelection={regionSelection}
                         onRegionChange={setRegionSelection}

@@ -16,7 +16,6 @@ export default function TrackView({
     isSelected,
     onSeek,
     onDelete,
-    onDemoCut, // <-- A remplacer
     playheadTime, // temps virtuel actuel sur cette piste (null si pas en lecture)
     regionSelection,
     onRegionChange,
