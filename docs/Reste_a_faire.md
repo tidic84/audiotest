@@ -7,5 +7,7 @@
 - bouton pour changer de maintrack + distinction de la maintrack ? marquer maintrack a droite ?
 - raccourci claviers
 <!-- - undo / redo -->
-- Quand on appuie sur arreter: le curseur doit rester a la position
-- Le temps affiché doit correspondre a la position du curseur et donc s'actualliser quand on clique sur la timeline.
+<!-- - Quand on appuie sur arreter: le curseur doit rester a la position -->
+<!-- - Le temps affiché doit correspondre a la position du curseur et donc s'actualliser quand on clique sur la timeline. -->
+- Faire une nouvelle graduation pour qu'elle prenne toute la place horizontalement.
+- Quand on redimentionne de tres peu ça met le curseur et ça enleve la regiion.

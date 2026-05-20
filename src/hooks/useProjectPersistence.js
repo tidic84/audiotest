@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { makeTrack } from "../lib/edl";
 import {
     loadProject,
@@ -7,9 +7,9 @@ import {
     saveAudioBlob,
 } from "../lib/storageUtil";
 
-// Synchronise `tracks` avec le backend pithekos :
+// Synchronise `tracks` avec le backend :
 //   - au mount : charge `_project.json`, re-décode chaque .webm en AudioBuffer.
-//   - si aucun projet sauvegardé et `audioUrl` fourni : l'importe comme première piste.
+//   - si aucun projet sauvegardé au tout premier mount et `audioUrl` fourni : l'importe comme première piste.
 //   - à chaque modif de tracks : sauve le JSON (debounced 500 ms, sans les buffers).
 
 export function useProjectPersistence({
@@ -20,10 +20,18 @@ export function useProjectPersistence({
     setTracks,
 }) {
     const [projectLoaded, setProjectLoaded] = useState(false);
+    // Le fallback audioUrl ne doit s'appliquer qu'au tout premier mount, pas à chaque
+    // navigation OBS — sinon naviguer sur un OBS vide ré-importerait la démo.
+    const initialLoadRef = useRef(true);
 
     useEffect(() => {
         if (!paths) return;
         let cancelled = false;
+        const isInitial = initialLoadRef.current;
+        initialLoadRef.current = false;
+        // Reset immédiat : on affiche l'état vide pendant le chargement et si rien n'est trouvé.
+        setProjectLoaded(false);
+        setTracks([]);
         (async () => {
             audioCtxRef.current ??= new AudioContext();
             const proj = await loadProject(paths);
@@ -40,9 +48,10 @@ export function useProjectPersistence({
                         ),
                     })),
                 );
-                // Ré-attache les réfs runtime des segments cross-pistes via leur `bufferTrackId`.
-                const buffersById = new Map(loaded.map((t) => [t.id, t.buffer]));
-                const resolved = loaded.map((t) => ({
+                // Drop les pistes dont le buffer n'a pas pu être chargé (fichier manquant/corrompu).
+                const valid = loaded.filter((t) => t.buffer);
+                const buffersById = new Map(valid.map((t) => [t.id, t.buffer]));
+                const resolved = valid.map((t) => ({
                     ...t,
                     edl: t.edl.map((seg) => ({
                         ...seg,
@@ -58,20 +67,26 @@ export function useProjectPersistence({
                 return;
             }
 
-            if (!audioUrl) {
-                setProjectLoaded(true);
+            if (!isInitial || !audioUrl) {
+                if (!cancelled) setProjectLoaded(true);
                 return;
             }
-            const blob = await (await fetch(audioUrl)).blob();
-            const buffer = await audioCtxRef.current.decodeAudioData(
-                await blob.arrayBuffer(),
-            );
-            if (cancelled) return;
-            const track = makeTrack(buffer, "Piste 1");
-            await saveAudioBlob(paths, track.id, blob);
-            if (!cancelled) {
-                setTracks([track]);
-                setProjectLoaded(true);
+            try {
+                const res = await fetch(audioUrl);
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const blob = await res.blob();
+                const buffer = await audioCtxRef.current.decodeAudioData(
+                    await blob.arrayBuffer(),
+                );
+                if (cancelled) return;
+                const track = makeTrack(buffer, "Piste 1");
+                await saveAudioBlob(paths, track.id, blob);
+                if (!cancelled) {
+                    setTracks([track]);
+                    setProjectLoaded(true);
+                }
+            } catch {
+                if (!cancelled) setProjectLoaded(true);
             }
         })();
         return () => {

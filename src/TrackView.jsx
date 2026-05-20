@@ -4,7 +4,7 @@ import RegionsPlugin from "wavesurfer.js/dist/plugins/regions.esm.js";
 import TimelinePlugin from "wavesurfer.js/dist/plugins/timeline.esm.js";
 import Box from "@mui/material/Box";
 import Stack from "@mui/material/Stack";
-import Divider from '@mui/material/Divider';
+import Divider from "@mui/material/Divider";
 import IconButton from "@mui/material/IconButton";
 import DeleteIcon from "@mui/icons-material/DeleteOutlined";
 import EditIcon from "@mui/icons-material/EditOutlined";
@@ -62,13 +62,24 @@ export default function TrackView({
                 if (r.id !== region.id) r.remove();
             });
             setSelection({ start: region.start, end: region.end });
-            onRegionChange?.({ trackId: track.id, start: region.start, end: region.end });
+            onRegionChange?.({
+                trackId: track.id,
+                start: region.start,
+                end: region.end,
+            });
         });
         const unsubUpdated = regionsPlugin.on("region-updated", (region) => {
             setSelection({ start: region.start, end: region.end });
-            onRegionChange?.({ trackId: track.id, start: region.start, end: region.end });
+            onRegionChange?.({
+                trackId: track.id,
+                start: region.start,
+                end: region.end,
+            });
         });
-        return () => { unsubCreated(); unsubUpdated(); };
+        return () => {
+            unsubCreated();
+            unsubUpdated();
+        };
     }, [regionsPlugin, onRegionChange, track.id]);
 
     // Vide les régions de cette piste quand la sélection courante n'est pas la sienne
@@ -80,7 +91,10 @@ export default function TrackView({
         }
     }, [regionSelection, track.id, regionsPlugin]);
 
-    const plugins = useMemo(() => [regionsPlugin, timelinePlugin], [regionsPlugin, timelinePlugin]);
+    const plugins = useMemo(
+        () => [regionsPlugin, timelinePlugin],
+        [regionsPlugin, timelinePlugin],
+    );
 
     const { wavesurfer } = useWavesurfer({
         container: containerRef,
@@ -99,7 +113,9 @@ export default function TrackView({
             drag: true,
             resize: true,
         });
-        return () => { unsub?.(); };
+        return () => {
+            unsub?.();
+        };
     }, [wavesurfer, regionsPlugin]);
 
     // Synchronise le curseur de progression de wavesurfer avec le playhead custom.
@@ -144,7 +160,10 @@ export default function TrackView({
         const onUp = (e) => {
             if (downX !== null && !dragged) {
                 const rect = wrapper.getBoundingClientRect();
-                const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                const ratio = Math.max(
+                    0,
+                    Math.min(1, (e.clientX - rect.left) / rect.width),
+                );
                 wavesurfer.seekTo(ratio);
                 onSeek?.(track.id, ratio * dur);
                 // Click simple = on efface la région.
@@ -167,12 +186,24 @@ export default function TrackView({
     }, [wavesurfer, onSeek, track.id, dur, regionsPlugin, onRegionChange]);
 
     return (
-        <Box sx={{ border: isSelected ? "1px solid #1565c0" : "1px solid #777", borderTop: isSelected ? "0.1px solid #1565c0" : "0px solid #fff" }}>
-            <Stack direction="row" alignItems="center" spacing={5}>
+        <Box
+            sx={{
+                border: isSelected ? "1px solid #1565c0" : "1px solid #777",
+                borderTop: isSelected ? "0.1px solid #1565c0" : "0px solid #fff",
+            }}
+        >
+            <Stack direction="row" alignItems="center" spacing={1}>
                 {/* Conteneur "rail temporel" : prend toute la place restante, identique sur chaque piste.
                     widthPct% est ensuite appliqué sur cette largeur stable -> px/sec aligné inter-pistes. */}
                 <Box sx={{ flex: 1, minWidth: 0, position: "relative" }}>
-                    <Box sx={{ width: `${widthPct}%`, position: "relative", overflow: "hidden", borderRadius: 1 }}>
+                    <Box
+                        sx={{
+                            width: `${widthPct}%`,
+                            position: "relative",
+                            overflow: "hidden",
+                            borderRadius: 1,
+                        }}
+                    >
                         <Box ref={containerRef} />
                         {playheadTime != null && dur > 0 && (
                             <Box
@@ -190,81 +221,77 @@ export default function TrackView({
                         )}
                     </Box>
                 </Box>
-                <Divider orientation="vertical" flexItem sx={{ alignSelf: "stretch" }} />
-                <Stack direction="row" overflow="visible" flexShrink={0}>
-                    <Stack
-                        spacing={0}
-                        paddingRight={7}
-                        paddingLeft={1}
-                        justifyContent="center"
-                        overflow="visible"
+                <Divider
+                    orientation="vertical"
+                    flexItem
+                    sx={{ alignSelf: "stretch" }}
+                />
+                <Stack
+                    spacing={0}
+                    paddingRight={7}
+                    paddingLeft={0}
+                    alignItems="left"
+                    margin={0}
+                    top={0}
+                >
+                    <Box
+                        minWidth={60}
+                        maxWidth={60}
+                        display="flex"
+                        justifyContent="left"
+                        alignItems="center"
+                        sx={{ position: "relative", overflow: "visible" }}
                     >
-                        <Box
-                            marginLeft={0.7}
-                            minWidth={60}
-                            maxWidth={60}
-                            display="flex"
-                            justifyContent="center"
-                            alignItems="center"
-                            sx={{ position: "relative", overflow: "visible" }}
-                        >
-                            {isRenaming ? (
-                                <TextField
-                                    size="small"
-                                    value={draftName}
-                                    autoFocus
-                                    onChange={(e) => setDraftName(e.target.value)}
-                                    onBlur={() => {
+                        {isRenaming ? (
+                            <TextField
+                                size="small"
+                                value={draftName}
+                                autoFocus
+                                onChange={(e) => setDraftName(e.target.value)}
+                                onBlur={() => {
+                                    onRename?.(track.id, draftName.trim() || track.name);
+                                    setIsRenaming(false);
+                                }}
+                                onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
                                         onRename?.(track.id, draftName.trim() || track.name);
                                         setIsRenaming(false);
-                                    }}
-                                    onKeyDown={(e) => {
-                                        if (e.key === "Enter") {
-                                            onRename?.(track.id, draftName.trim() || track.name);
-                                            setIsRenaming(false);
-                                        } else if (e.key === "Escape") {
-                                            setDraftName(track.name);
-                                            setIsRenaming(false);
-                                        }
-                                    }}
-                                    sx={{
-                                        position: "absolute",
-                                        top: "50%",
-                                        left: "50%",
-                                        transform: "translate(-50%, -50%)",
-                                        width: 200,
-                                        zIndex: 3,
-                                        backgroundColor: "background.paper",
-                                    }}
-                                />
-                            ) : (
-                                track.name
-                            )}
-                        </Box>
-                        <Stack direction="row" margin={0}>
-                            <IconButton
-                                size="small"
-                                onClick={() => {
-                                    setDraftName(track.name);
-                                    setIsRenaming(true);
-                                }} title="Rename track"
-                            >
-                                <EditIcon fontSize="small" />
-                            </IconButton>
-                            <IconButton
-                                size="small"
-                                onClick={onDelete}
-                                title="Delete track"
-                            >
-                                <DeleteIcon fontSize="small" />
-                            </IconButton>
-                        </Stack>
+                                    } else if (e.key === "Escape") {
+                                        setDraftName(track.name);
+                                        setIsRenaming(false);
+                                    }
+                                }}
+                                sx={{
+                                    position: "absolute",
+                                    top: "50%",
+                                    left: "50%",
+                                    transform: "translate(-50%, -50%)",
+                                    width: 200,
+                                    zIndex: 3,
+                                    backgroundColor: "background.paper",
+                                }}
+                            />
+                        ) : (
+                            track.name
+                        )}
+                    </Box>
+                    <Stack direction="row" margin={-0.7}>
+                        <IconButton
+                            size="small"
+                            onClick={() => {
+                                setDraftName(track.name);
+                                setIsRenaming(true);
+                            }}
+                            title="Rename track"
+                        >
+                            <EditIcon fontSize="small" />
+                        </IconButton>
+                        <IconButton size="small" onClick={onDelete} title="Delete track">
+                            <DeleteIcon fontSize="small" />
+                        </IconButton>
                     </Stack>
                 </Stack>
-
             </Stack>
-
-
         </Box>
     );
 }

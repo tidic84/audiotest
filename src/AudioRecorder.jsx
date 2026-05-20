@@ -25,7 +25,6 @@ import Timeline from "./Timeline";
 import { formatTime } from "./Timeline";
 import { cutRange, extractRange, insertAt } from "./lib/edl";
 
-
 export default function AudioRecorder({ audioUrl, obs, metadata }) {
     const audioCtxRef = useRef(null);
     const [tracks, setTracks] = useState([]);
@@ -75,9 +74,12 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
         : (selection?.time ?? 0);
 
     const tick = () => {
-        const elapsed = Math.max(0, audioCtxRef.current.currentTime - playStartedAtRef.current);
+        const elapsed = Math.max(
+            0,
+            audioCtxRef.current.currentTime - playStartedAtRef.current,
+        );
         if (elapsed >= playEndsAtRef.current) {
-            // Fixe le curseur à la fin de la piste
+            // Met le curseur à la fin de la piste
             const trackId = playingFromRef.current?.trackId;
             const startTime = playingFromRef.current?.startTime ?? 0;
             if (trackId != null) {
@@ -99,11 +101,7 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
         const track = tracks.find((t) => t.id === trackId);
         if (!track) return;
         stopSources(sourcesRef.current);
-        sourcesRef.current = scheduleTrackFrom(
-            audioCtxRef.current,
-            track,
-            time,
-        );
+        sourcesRef.current = scheduleTrackFrom(audioCtxRef.current, track, time);
         playStartedAtRef.current = audioCtxRef.current.currentTime + 0.05;
         playEndsAtRef.current = virtualDuration(track) - time;
         playingFromRef.current = { trackId, startTime: time };
@@ -151,17 +149,16 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
     };
 
     const setTracksWithHistory = (updater) => {
-        setPast(p => [...p, tracks]);
+        setPast((p) => [...p, tracks]);
         setFuture([]);
         setTracks(updater);
     };
 
     const deleteTrack = async (id) => {
-        setTracksWithHistory(ts => ts.filter(t => t.id !== id));
+        setTracksWithHistory((ts) => ts.filter((t) => t.id !== id));
         if (selection?.trackId === id) setSelection(null);
         if (paths) await deleteAudioFile(paths, id).catch(() => { });
     };
-
 
     const cutSelection = () => {
         if (!regionSelection) return;
@@ -170,9 +167,11 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
         //     t.id === trackId ? { ...t, edl: cutRange(t.edl, start, end) } : t
         // ));
         copySelection();
-        setTracksWithHistory(ts => ts.map(t =>
-            t.id === trackId ? { ...t, edl: cutRange(t.edl, start, end) } : t
-        ));
+        setTracksWithHistory((ts) =>
+            ts.map((t) =>
+                t.id === trackId ? { ...t, edl: cutRange(t.edl, start, end) } : t,
+            ),
+        );
 
         setRegionSelection(null);
     };
@@ -180,7 +179,7 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
     const copySelection = () => {
         if (!regionSelection) return;
         const { trackId, start, end } = regionSelection;
-        const track = tracks.find(t => t.id === trackId);
+        const track = tracks.find((t) => t.id === trackId);
         if (!track) return;
         // Tag chaque segment extrait avec le buffer source + l'id de la piste source.
         // - le buffer permet le paste runtime (réf directe)
@@ -193,13 +192,19 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
     const pasteAtCursor = () => {
         if (!clipboard || !selection) return;
         const { trackId, time } = selection;
-        setTracksWithHistory(ts => ts.map(t =>
-            t.id === trackId ? { ...t, edl: insertAt(t.edl, time, clipboard.segments) } : t
-        ));
+        setTracksWithHistory((ts) =>
+            ts.map((t) =>
+                t.id === trackId
+                    ? { ...t, edl: insertAt(t.edl, time, clipboard.segments) }
+                    : t,
+            ),
+        );
     };
 
     const renameTrack = (trackId, newName) => {
-        setTracks(ts => ts.map(t => t.id === trackId ? { ...t, name: newName } : t));
+        setTracks((ts) =>
+            ts.map((t) => (t.id === trackId ? { ...t, name: newName } : t)),
+        );
     };
 
     // Raccourci clavier
@@ -209,8 +214,10 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
             if (isCmd && e.key.toLowerCase() === "z" && !e.shiftKey) {
                 e.preventDefault();
                 undo();
-            } else if ((isCmd && e.key.toLowerCase() === "y") ||
-                (isCmd && e.shiftKey && e.key.toLowerCase() === "z")) {
+            } else if (
+                (isCmd && e.key.toLowerCase() === "y") ||
+                (isCmd && e.shiftKey && e.key.toLowerCase() === "z")
+            ) {
                 e.preventDefault();
                 redo();
             }
@@ -222,16 +229,16 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
     const undo = () => {
         if (past.length === 0) return;
         const prev = past[past.length - 1];
-        setPast(p => p.slice(0, -1));
-        setFuture(f => [tracks, ...f]);
+        setPast((p) => p.slice(0, -1));
+        setFuture((f) => [tracks, ...f]);
         setTracks(prev);
     };
 
     const redo = () => {
         if (future.length === 0) return;
         const next = future[0];
-        setFuture(f => f.slice(1));
-        setPast(p => [...p, tracks]);
+        setFuture((f) => f.slice(1));
+        setPast((p) => [...p, tracks]);
         setTracks(next);
     };
 
@@ -285,38 +292,56 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
                 >
                     <ContentCutIcon fontSize="small" />
                 </IconButton>
-                <IconButton size="small" onClick={undo} disabled={past.length === 0} title="Undo">
+                <IconButton
+                    size="small"
+                    onClick={undo}
+                    disabled={past.length === 0}
+                    title="Undo"
+                >
                     <UndoIcon fontSize="small" />
                 </IconButton>
-                <IconButton size="small" onClick={redo} disabled={future.length === 0} title="Redo">
+                <IconButton
+                    size="small"
+                    onClick={redo}
+                    disabled={future.length === 0}
+                    title="Redo"
+                >
                     <RedoIcon fontSize="small" />
                 </IconButton>
             </Stack>
             {/* <Timeline projectDuration={projectDuration} /> */}
-            {tracks.map((t) => {
-                const isSel = selection?.trackId === t.id;
-                // Le playhead suit la piste qu'on a *réellement* lancée,
-                // pas la sélection en cours (qui peut changer pendant la lecture).
-                const isLivePlay = isPlaying && playingFromRef.current?.trackId === t.id;
-                const playheadTime = isLivePlay
-                    ? (playingFromRef.current?.startTime ?? 0) + playerHeadTime
-                    : (selection?.trackId === t.id ? selection.time : null);
-                return (
-                    <TrackView
-                        key={t.id}
-                        track={t}
-                        projectDuration={projectDuration}
-                        isSelected={isSel}
-                        onSeek={handleSeek}
-                        onDelete={() => deleteTrack(t.id)}
-                        playheadTime={playheadTime}
-                        regionSelection={regionSelection}
-                        onRegionChange={setRegionSelection}
-                        onRename={renameTrack}
-
-                    />
-                );
-            })}
+            {tracks.length > 0 ? (
+                tracks.map((t) => {
+                    const isSel = selection?.trackId === t.id;
+                    // Le playhead suit la piste qu'on a *réellement* lancée,
+                    // pas la sélection en cours (qui peut changer pendant la lecture).
+                    const isLivePlay =
+                        isPlaying && playingFromRef.current?.trackId === t.id;
+                    const playheadTime = isLivePlay
+                        ? (playingFromRef.current?.startTime ?? 0) + playerHeadTime
+                        : selection?.trackId === t.id
+                            ? selection.time
+                            : null;
+                    return (
+                        <TrackView
+                            key={t.id}
+                            track={t}
+                            projectDuration={projectDuration}
+                            isSelected={isSel}
+                            onSeek={handleSeek}
+                            onDelete={() => deleteTrack(t.id)}
+                            playheadTime={playheadTime}
+                            regionSelection={regionSelection}
+                            onRegionChange={setRegionSelection}
+                            onRename={renameTrack}
+                        />
+                    );
+                })
+            ) : (
+                <Box sx={{ color: "#666", p: 4, borderBottom: "1px solid #777", borderLeft: "1px solid #777", borderRight: "1px solid #777" }}>
+                    No tracks to display
+                </Box>
+            )}
         </Box>
     );
 }

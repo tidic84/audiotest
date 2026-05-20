@@ -17,9 +17,9 @@ export function projectPaths({ localPath, chapter, paragraph }) {
 }
 
 export async function loadProject(paths) {
-    const r = await fetch(paths.bytesUrl(paths.project));
-    if (!r.ok) return null;
     try {
+        const r = await fetch(paths.bytesUrl(paths.project));
+        if (!r.ok) return null;
         return await r.json();
     } catch {
         return null;
@@ -42,8 +42,13 @@ export async function saveAudioBlob(paths, id, blob) {
 }
 
 export async function loadAudioBuffer(ctx, paths, id) {
-    const r = await fetch(paths.bytesUrl(paths.audio(id)));
-    return ctx.decodeAudioData(await r.arrayBuffer());
+    try {
+        const r = await fetch(paths.bytesUrl(paths.audio(id)));
+        if (!r.ok) return null;
+        return await ctx.decodeAudioData(await r.arrayBuffer());
+    } catch {
+        return null;
+    }
 }
 
 export async function deleteAudioFile(paths, id) {
