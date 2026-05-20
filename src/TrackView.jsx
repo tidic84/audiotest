@@ -102,6 +102,13 @@ export default function TrackView({
         return () => { unsub?.(); };
     }, [wavesurfer, regionsPlugin]);
 
+    // Synchronise le curseur de progression de wavesurfer avec le playhead custom.
+    useEffect(() => {
+        if (!wavesurfer || dur <= 0 || playheadTime == null) return;
+        const ratio = Math.max(0, Math.min(1, playheadTime / dur));
+        wavesurfer.seekTo(ratio);
+    }, [wavesurfer, playheadTime, dur]);
+
     // Escape : efface la sélection (utile quand la région couvre toute la zone et qu'on ne peut plus draguer une zone vide pour la recréer).
     useEffect(() => {
         const onKey = (e) => {
@@ -184,13 +191,13 @@ export default function TrackView({
                     </Box>
                 </Box>
                 <Divider orientation="vertical" flexItem sx={{ alignSelf: "stretch" }} />
-                <Stack direction="row" overflow="hidden" flexShrink={0}>
+                <Stack direction="row" overflow="visible" flexShrink={0}>
                     <Stack
                         spacing={0}
                         paddingRight={7}
                         paddingLeft={1}
                         justifyContent="center"
-                        overflow="hidden"
+                        overflow="visible"
                     >
                         <Box
                             marginLeft={0.7}

@@ -50,6 +50,6 @@ export function scheduleTrackFrom(ctx, track, vStart = 0, leadSeconds = 0.05) {
 
 export function stopSources(sources) {
     for (const s of sources) {
-        try { s.stop(); } catch {}
+        try { s.stop(); } catch { }
     }
 }

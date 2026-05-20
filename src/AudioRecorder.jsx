@@ -69,12 +69,20 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
         setTracks,
     });
 
+    // Pour afficher le temps meme quand on ne joue pas de track
+    const displayTime = isPlaying
+        ? (playingFromRef.current?.startTime ?? 0) + playerHeadTime
+        : (selection?.time ?? 0);
+
     const tick = () => {
-        const elapsed = Math.max(
-            0,
-            audioCtxRef.current.currentTime - playStartedAtRef.current,
-        );
+        const elapsed = Math.max(0, audioCtxRef.current.currentTime - playStartedAtRef.current);
         if (elapsed >= playEndsAtRef.current) {
+            // Fixe le curseur à la fin de la piste
+            const trackId = playingFromRef.current?.trackId;
+            const startTime = playingFromRef.current?.startTime ?? 0;
+            if (trackId != null) {
+                setSelection({ trackId, time: startTime + playEndsAtRef.current });
+            }
             playingFromRef.current = null;
             setPlayerHeadTime(0);
             setIsPlaying(false);
@@ -117,6 +125,11 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
     };
 
     const stop = () => {
+        // capture la pos du cursuer avant de reset
+        const trackId = playingFromRef.current?.trackId;
+        const startTime = playingFromRef.current?.startTime ?? 0;
+        const currentPos = startTime + playerHeadTime;
+
         stopSources(sourcesRef.current);
         sourcesRef.current = [];
         if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -124,6 +137,11 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
         playingFromRef.current = null;
         setPlayerHeadTime(0);
         setIsPlaying(false);
+
+        // remet la pos du curseur
+        if (trackId != null) {
+            setSelection({ trackId, time: currentPos });
+        }
     };
 
     // Clic sur une waveform ->> on retient piste + position, et on relance la lecture depuis ce point si on est en train de jouer.
@@ -134,7 +152,7 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
 
     const setTracksWithHistory = (updater) => {
         setPast(p => [...p, tracks]);
-        setFuture([]); 
+        setFuture([]);
         setTracks(updater);
     };
 
@@ -151,6 +169,7 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
         // setTracks(ts => ts.map(t =>
         //     t.id === trackId ? { ...t, edl: cutRange(t.edl, start, end) } : t
         // ));
+        copySelection();
         setTracksWithHistory(ts => ts.map(t =>
             t.id === trackId ? { ...t, edl: cutRange(t.edl, start, end) } : t
         ));
@@ -224,7 +243,7 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
                 sx={{ border: "1px solid #777", alignItems: "center" }}
             >
                 <Box sx={{ fontSize: 12, color: "#666", paddingLeft: 2 }}>
-                    {playerHeadTime > 0 ? formatTime(playerHeadTime, true) : "0:00:000"}
+                    {formatTime(displayTime, true)}
                 </Box>
 
                 <IconButton
@@ -278,11 +297,10 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
                 const isSel = selection?.trackId === t.id;
                 // Le playhead suit la piste qu'on a *réellement* lancée,
                 // pas la sélection en cours (qui peut changer pendant la lecture).
-                const isLivePlay =
-                    isPlaying && playingFromRef.current?.trackId === t.id;
+                const isLivePlay = isPlaying && playingFromRef.current?.trackId === t.id;
                 const playheadTime = isLivePlay
                     ? (playingFromRef.current?.startTime ?? 0) + playerHeadTime
-                    : null;
+                    : (selection?.trackId === t.id ? selection.time : null);
                 return (
                     <TrackView
                         key={t.id}
