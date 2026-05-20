@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo, useEffect } from "react";
 import Box from "@mui/material/Box";
 import Stack from "@mui/material/Stack";
 import IconButton from "@mui/material/IconButton";
@@ -8,6 +8,8 @@ import PlayArrowIcon from "@mui/icons-material/PlayArrowOutlined";
 import ContentCopyIcon from "@mui/icons-material/ContentCopyOutlined";
 import ContentPasteIcon from "@mui/icons-material/ContentPasteOutlined";
 import ContentCutIcon from "@mui/icons-material/ContentCutOutlined";
+import UndoIcon from "@mui/icons-material/UndoOutlined";
+import RedoIcon from "@mui/icons-material/RedoOutlined";
 
 import TrackView from "./TrackView";
 import { makeTrack, makeSegment, virtualDuration } from "./lib/edl";
@@ -28,10 +30,15 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
     const audioCtxRef = useRef(null);
     const [tracks, setTracks] = useState([]);
     const [isPlaying, setIsPlaying] = useState(false);
+    const [playerHeadTime, setPlayerHeadTime] = useState(0);
+    // Region/selection
     const [selection, setSelection] = useState(null); // { trackId, time }
     const [regionSelection, setRegionSelection] = useState(null); // { trackId, start, end }
     const [clipboard, setClipboard] = useState(null); // { buffer, segments }
-    const [playerHeadTime, setPlayerHeadTime] = useState(0);
+    // undo/redo
+    const [future, setFuture] = useState([]); // historique des actions apres le undo
+    const [past, setPast] = useState([]); // historique des actions
+
     const playStartedAtRef = useRef(0);
     const playEndsAtRef = useRef(0);
     const playingFromRef = useRef(null); // { trackId, startTime } figé au play()
@@ -125,8 +132,14 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
         if (isPlaying) startPlayback(trackId, time);
     };
 
+    const setTracksWithHistory = (updater) => {
+        setPast(p => [...p, tracks]);
+        setFuture([]); 
+        setTracks(updater);
+    };
+
     const deleteTrack = async (id) => {
-        setTracks((ts) => ts.filter((t) => t.id !== id));
+        setTracksWithHistory(ts => ts.filter(t => t.id !== id));
         if (selection?.trackId === id) setSelection(null);
         if (paths) await deleteAudioFile(paths, id).catch(() => { });
     };
@@ -135,9 +148,13 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
     const cutSelection = () => {
         if (!regionSelection) return;
         const { trackId, start, end } = regionSelection;
-        setTracks(ts => ts.map(t =>
+        // setTracks(ts => ts.map(t =>
+        //     t.id === trackId ? { ...t, edl: cutRange(t.edl, start, end) } : t
+        // ));
+        setTracksWithHistory(ts => ts.map(t =>
             t.id === trackId ? { ...t, edl: cutRange(t.edl, start, end) } : t
         ));
+
         setRegionSelection(null);
     };
 
@@ -157,11 +174,46 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
     const pasteAtCursor = () => {
         if (!clipboard || !selection) return;
         const { trackId, time } = selection;
-        setTracks(ts => ts.map(t =>
-            t.id === trackId
-                ? { ...t, edl: insertAt(t.edl, time, clipboard.segments) }
-                : t
+        setTracksWithHistory(ts => ts.map(t =>
+            t.id === trackId ? { ...t, edl: insertAt(t.edl, time, clipboard.segments) } : t
         ));
+    };
+
+    const renameTrack = (trackId, newName) => {
+        setTracks(ts => ts.map(t => t.id === trackId ? { ...t, name: newName } : t));
+    };
+
+    // Raccourci clavier
+    useEffect(() => {
+        const onKey = (e) => {
+            const isCmd = e.ctrlKey || e.metaKey;
+            if (isCmd && e.key.toLowerCase() === "z" && !e.shiftKey) {
+                e.preventDefault();
+                undo();
+            } else if ((isCmd && e.key.toLowerCase() === "y") ||
+                (isCmd && e.shiftKey && e.key.toLowerCase() === "z")) {
+                e.preventDefault();
+                redo();
+            }
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+    }, [past, future, tracks]);
+
+    const undo = () => {
+        if (past.length === 0) return;
+        const prev = past[past.length - 1];
+        setPast(p => p.slice(0, -1));
+        setFuture(f => [tracks, ...f]);
+        setTracks(prev);
+    };
+
+    const redo = () => {
+        if (future.length === 0) return;
+        const next = future[0];
+        setFuture(f => f.slice(1));
+        setPast(p => [...p, tracks]);
+        setTracks(next);
     };
 
     return (
@@ -214,6 +266,12 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
                 >
                     <ContentCutIcon fontSize="small" />
                 </IconButton>
+                <IconButton size="small" onClick={undo} disabled={past.length === 0} title="Undo">
+                    <UndoIcon fontSize="small" />
+                </IconButton>
+                <IconButton size="small" onClick={redo} disabled={future.length === 0} title="Redo">
+                    <RedoIcon fontSize="small" />
+                </IconButton>
             </Stack>
             {/* <Timeline projectDuration={projectDuration} /> */}
             {tracks.map((t) => {
@@ -236,6 +294,8 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
                         playheadTime={playheadTime}
                         regionSelection={regionSelection}
                         onRegionChange={setRegionSelection}
+                        onRename={renameTrack}
+
                     />
                 );
             })}
