@@ -12,8 +12,8 @@
 //                        du projet on l'utilise pour ré-attacher la réf runtime.
 // Si les deux sont absents, le segment utilise le buffer de la piste qui le contient.
 
-export function makeSegment(srcStart, srcEnd, buffer = null, bufferTrackId = null) {
-    return { id: crypto.randomUUID(), srcStart, srcEnd, buffer, bufferTrackId };
+export function makeSegment(vStart, srcStart, srcEnd, buffer = null, bufferTrackId = null) {
+    return { id: crypto.randomUUID(), vStart, srcStart, srcEnd, buffer, bufferTrackId };
 }
 
 export function makeTrack(buffer, name, id = crypto.randomUUID()) {
@@ -21,12 +21,17 @@ export function makeTrack(buffer, name, id = crypto.randomUUID()) {
         id,
         name,
         buffer,
-        edl: [makeSegment(0, buffer.duration)],
+        edl: [makeSegment(0, 0, buffer.duration)],
     };
 }
 
+// Durée totale de la timeline virtuelle d'une piste = somme des durées des segments de son EDL.
 export function virtualDuration(track) {
-    return track.edl.reduce((s, seg) => s + (seg.srcEnd - seg.srcStart), 0);
+    if (!track.edl || track.edl.length === 0) return 0;
+    return Math.max(
+        0,
+        ...track.edl.map(seg => seg.vStart + (seg.srcEnd - seg.srcStart))
+    );
 }
 
 // Buffer effectif pour un segment : son override runtime, sinon celui de la piste.
@@ -38,20 +43,22 @@ export function segmentBuffer(seg, trackBuffer) {
 }
 
 // Construit les peaks de la timeline virtuelle à partir du buffer + EDL.
-// Pour chaque segment, on remplit la portion correspondante du tableau de sortie.
+// Chaque segment dessine sa portion à [seg.vStart, seg.vStart + dur] dans le tableau.
+// Les bins non couverts restent à 0 (= silence visuel, trous entre clips).
 export function computeVirtualPeaks(buffer, edl, targetLen) {
-    const total = edl.reduce((s, seg) => s + (seg.srcEnd - seg.srcStart), 0);
     const peaks = new Float32Array(targetLen);
-    if (total === 0) return peaks;
+    if (edl.length === 0) return peaks;
 
-    let virt = 0;
+    const totalDur = Math.max(0, ...edl.map(s => s.vStart + (s.srcEnd - s.srcStart)));
+    if (totalDur === 0) return peaks;
+
     for (const seg of edl) {
         const segBuf = segmentBuffer(seg, buffer);
         const ch = segBuf.getChannelData(0);
         const sr = segBuf.sampleRate;
         const segDur = seg.srcEnd - seg.srcStart;
-        const b0 = Math.floor((virt / total) * targetLen);
-        const b1 = Math.floor(((virt + segDur) / total) * targetLen);
+        const b0 = Math.floor((seg.vStart / totalDur) * targetLen);
+        const b1 = Math.floor(((seg.vStart + segDur) / totalDur) * targetLen);
         const s0 = Math.floor(seg.srcStart * sr);
         const s1 = Math.floor(seg.srcEnd * sr);
         const binSize = (s1 - s0) / Math.max(b1 - b0, 1);
@@ -65,7 +72,6 @@ export function computeVirtualPeaks(buffer, edl, targetLen) {
             }
             peaks[i] = max;
         }
-        virt += segDur;
     }
     return peaks;
 }
@@ -73,108 +79,126 @@ export function computeVirtualPeaks(buffer, edl, targetLen) {
 export function cutRange(edl, vStart, vEnd) {
     if (vEnd <= vStart) return edl;
     const result = [];
-    let acc = 0;
     for (const seg of edl) {
+        const segVStart = seg.vStart;
         const segDur = seg.srcEnd - seg.srcStart;
-        const segVStart = acc;
-        const segVEnd = acc + segDur;
+        const segVEnd = segVStart + segDur;
+
+        // Hors zone : on garde le segment tel quel
         if (segVEnd <= vStart || segVStart >= vEnd) {
-            result.push(seg); // hors zone coupée
-        } else {
-            if (segVStart < vStart) {
-                result.push(makeSegment(
-                    seg.srcStart,
-                    seg.srcStart + (vStart - segVStart),
-                    seg.buffer,
-                    seg.bufferTrackId,
-                ));
-            }
-            if (segVEnd > vEnd) {
-                result.push(makeSegment(
-                    seg.srcStart + (vEnd - segVStart),
-                    seg.srcEnd,
-                    seg.buffer,
-                    seg.bufferTrackId,
-                ));
-            }
+            result.push(seg);
+            continue;
         }
-        acc += segDur;
+
+        // Partie gauche conservée (le segment commence avant la coupe)
+        if (segVStart < vStart) {
+            const keepDur = vStart - segVStart;
+            result.push(makeSegment(
+                segVStart,                  // vStart inchangé
+                seg.srcStart,
+                seg.srcStart + keepDur,     // srcEnd raccourci
+                seg.buffer,
+                seg.bufferTrackId,
+            ));
+        }
+
+        // Partie droite conservée (le segment finit après la coupe)
+        if (segVEnd > vEnd) {
+            const skipDur = vEnd - segVStart;
+            result.push(makeSegment(
+                vEnd,                       // vStart = la fin de la zone coupée
+                seg.srcStart + skipDur,     // srcStart avance
+                seg.srcEnd,                 // srcEnd inchangé
+                seg.buffer,
+                seg.bufferTrackId,
+            ));
+        }
     }
     return result;
 }
 
-// Extrait les segments couvrant la plage virtuelle [vStart, vEnd], clippés aux bords.
-// Retourne un nouvel array de segments avec des id frais. `sourceBuffer` et `sourceTrackId`
-// sont attachés aux segments qui n'avaient pas déjà leur propre réf (utile pour le
-// copier-coller inter-pistes : le buffer survit en mémoire, l'id survit à la persistance).
 export function extractRange(edl, vStart, vEnd, sourceBuffer = null, sourceTrackId = null) {
     if (vEnd <= vStart) return [];
     const result = [];
-    let acc = 0;
     for (const seg of edl) {
+        const segVStart = seg.vStart;
         const segDur = seg.srcEnd - seg.srcStart;
-        const segVStart = acc;
-        const segVEnd = acc + segDur;
-        if (segVEnd > vStart && segVStart < vEnd) {
-            const clipStart = Math.max(0, vStart - segVStart);
-            const clipEnd = Math.min(segDur, vEnd - segVStart);
-            result.push(makeSegment(
-                seg.srcStart + clipStart,
-                seg.srcStart + clipEnd,
-                seg.buffer || sourceBuffer,
-                seg.bufferTrackId || sourceTrackId,
-            ));
-        }
-        acc += segDur;
+        const segVEnd = segVStart + segDur;
+
+        // Pas de chevauchement : on passe
+        if (segVEnd <= vStart || segVStart >= vEnd) continue;
+
+        // Combien on rogne à gauche (si le segment dépassait avant vStart)
+        const clipLeft = Math.max(0, vStart - segVStart);
+        // Combien on rogne à droite (si le segment dépassait après vEnd)
+        const clipRight = Math.max(0, segVEnd - vEnd);
+
+        // Position dans le presse-papier : relative à vStart, jamais négative
+        const newVStart = Math.max(0, segVStart - vStart);
+
+        result.push(makeSegment(
+            newVStart,
+            seg.srcStart + clipLeft,
+            seg.srcEnd - clipRight,
+            seg.buffer || sourceBuffer,
+            seg.bufferTrackId || sourceTrackId,
+        ));
     }
     return result;
 }
 
-// Insère des segments dans l'EDL à la position virtuelle vTime. Découpe le segment
-// en cours si vTime tombe au milieu. Retourne un nouvel EDL.
-export function insertAt(edl, vTime, segments) {
-    if (!segments?.length) return edl;
-    const result = [];
-    let acc = 0;
-    let inserted = false;
-    for (const seg of edl) {
-        const segDur = seg.srcEnd - seg.srcStart;
-        const segVStart = acc;
-        const segVEnd = acc + segDur;
-        if (!inserted && vTime <= segVEnd) {
-            const splitPoint = vTime - segVStart;
-            if (splitPoint > 0) {
-                result.push(makeSegment(seg.srcStart, seg.srcStart + splitPoint, seg.buffer, seg.bufferTrackId));
-            }
-            for (const s of segments) {
-                result.push(makeSegment(s.srcStart, s.srcEnd, s.buffer, s.bufferTrackId));
-            }
-            if (splitPoint < segDur) {
-                result.push(makeSegment(seg.srcStart + splitPoint, seg.srcEnd, seg.buffer, seg.bufferTrackId));
-            }
-            inserted = true;
-        } else {
-            result.push(seg);
-        }
-        acc += segDur;
-    }
-    if (!inserted) {
-        for (const s of segments) {
-            result.push(makeSegment(s.srcStart, s.srcEnd, s.buffer, s.bufferTrackId));
-        }
-    }
-    return result;
+// Insère des segments à la position vTime.
+// Si le contenu inséré dépasse le début du prochain clip existant, on pousse
+// ce prochain clip (et tous ceux qui le suivent) du minimum nécessaire pour
+// éviter le chevauchement. Si la place suffit, on ne pousse rien.
+// Les clips qui commençaient avant vTime ne sont jamais touchés (un overlap
+// avec eux peut subsister si vTime tombe au milieu d'un clip — c'est au caller
+// de splitAt d'abord s'il veut l'éviter).
+export function insertAt(edl, vTime, newSegments) {
+    if (!newSegments?.length) return edl;
+
+    const shifted = newSegments.map((s) =>
+        makeSegment(s.vStart + vTime, s.srcStart, s.srcEnd, s.buffer, s.bufferTrackId)
+    );
+    const insertEnd = Math.max(
+        ...shifted.map(s => s.vStart + (s.srcEnd - s.srcStart))
+    );
+
+    const nextStart = edl
+        .filter(s => s.vStart >= vTime)
+        .reduce((min, s) => Math.min(min, s.vStart), Infinity);
+
+    const pushBy = Math.max(0, insertEnd - nextStart);
+    return [...makeSpace(edl, vTime, pushBy), ...shifted];
+}
+
+// Décale vers la droite tous les segments dont vStart ≥ vTime de `amount` secondes.
+// Si amount vaut 0, retourne l'EDL inchangée (pas de nouveau tableau).
+export function makeSpace(edl, vTime, amount) {
+    if (amount === 0) return edl;
+    return edl.map((s) =>
+        s.vStart >= vTime
+            ? { ...s, vStart: s.vStart + amount }
+            : s
+    );
 }
 
 export function virtualToSource(edl, vTime) {
-    let acc = 0;
     for (const seg of edl) {
-        const segDur = seg.srcEnd - seg.srcStart;
-        if (vTime <= acc + segDur) {
-            return { srcTime: seg.srcStart + (vTime - acc) };
-        }
-        acc += segDur;
+        const segVEnd = seg.vStart + (seg.srcEnd - seg.srcStart);
+        if (vTime >= seg.vStart && vTime < segVEnd) {
+            return { seg, srcTime: seg.srcStart + (vTime - seg.vStart) };
+        } 
     }
-    const last = edl[edl.length - 1];
-    return { srcTime: last.srcEnd };
+    return null; // dans un trou (ou après la fin)
+}
+
+export function ensureAbsolutePositions(edl) {
+    if (edl.length === 0 || edl[0].vStart !== undefined) return edl;
+    let acc = 0;
+    return edl.map((seg) => {
+        const out = { ...seg, vStart: acc };
+        acc += seg.srcEnd - seg.srcStart;
+        return out;
+    });
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { makeTrack } from "../lib/edl";
+import { ensureAbsolutePositions, makeTrack } from "../lib/edl";
 import {
     loadProject,
     saveProject,
@@ -53,7 +53,7 @@ export function useProjectPersistence({
                 const buffersById = new Map(valid.map((t) => [t.id, t.buffer]));
                 const resolved = valid.map((t) => ({
                     ...t,
-                    edl: t.edl.map((seg) => ({
+                    edl: ensureAbsolutePositions(t.edl).map((seg) => ({
                         ...seg,
                         buffer: seg.bufferTrackId
                             ? buffersById.get(seg.bufferTrackId) || null

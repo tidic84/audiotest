@@ -6,44 +6,40 @@ import { segmentBuffer } from "./edl";
 export function scheduleTracks(ctx, tracks, leadSeconds = 0.05) {
     const startAt = ctx.currentTime + leadSeconds;
     const sources = [];
-    for (const t of tracks) {
-        let when = startAt;
+    for (const t of tracks) { 
         for (const seg of t.edl) {
             const src = ctx.createBufferSource();
             src.buffer = segmentBuffer(seg, t.buffer);
             src.connect(ctx.destination);
             const dur = seg.srcEnd - seg.srcStart;
-            src.start(when, seg.srcStart, dur);
-            when += dur;
+            src.start(startAt + seg.vStart, seg.srcStart, dur);
             sources.push(src);
         }
     }
     return sources;
 }
 
-// Joue une seule piste à partir d'un temps virtuel `vStart`.
-// Pour chaque segment de l'EDL : ignoré si déjà passé, partiel si on tombe dedans,
-// complet sinon. Le buffer source n'est jamais modifié.
 export function scheduleTrackFrom(ctx, track, vStart = 0, leadSeconds = 0.05) {
     const startAt = ctx.currentTime + leadSeconds;
     const sources = [];
-    let acc = 0;
-    let when = startAt;
     for (const seg of track.edl) {
         const segDur = seg.srcEnd - seg.srcStart;
-        const segVEnd = acc + segDur;
-        if (segVEnd > vStart) {
-            const offsetInSeg = Math.max(0, vStart - acc);
-            const srcStart = seg.srcStart + offsetInSeg;
-            const durToPlay = seg.srcEnd - srcStart;
-            const src = ctx.createBufferSource();
-            src.buffer = segmentBuffer(seg, track.buffer);
-            src.connect(ctx.destination);
-            src.start(when, srcStart, durToPlay);
-            when += durToPlay;
-            sources.push(src);
-        }
-        acc += segDur;
+        const segVEnd = seg.vStart + segDur;
+
+        if (segVEnd <= vStart) continue; // déjà passé
+
+        // Combien on saute dans la source (0 si on prend le segment depuis son début)
+        const offsetInSeg = Math.max(0, vStart - seg.vStart);
+        // Décalage de planification (0 si on est dans le segment, > 0 si on l'attend)
+        const playAt = startAt + Math.max(0, seg.vStart - vStart);
+        const srcOffset = seg.srcStart + offsetInSeg;
+        const durToPlay = seg.srcEnd - srcOffset;
+
+        const src = ctx.createBufferSource();
+        src.buffer = segmentBuffer(seg, track.buffer);
+        src.connect(ctx.destination);
+        src.start(playAt, srcOffset, durToPlay);
+        sources.push(src);
     }
     return sources;
 }
