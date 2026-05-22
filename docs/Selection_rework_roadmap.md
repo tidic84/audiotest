@@ -16,14 +16,17 @@ On en ajoute un **troisième** : `clipSelection`, qui matérialise « un ou plus
 | **Click corps du clip** (zone waveform) | Inchangé — seek du playhead. |
 | **Click header** (bandeau foncé en haut, `HEADER_HEIGHT=12px`) | Sélectionne le clip entier (`clipSelection`). |
 | **Shift/Ctrl + click header** | Toggle ce clip dans la sélection courante. |
+| **Drag depuis header** | Déplace le clip (interact.js). C'est désormais le **seul** moyen de déplacer un clip. Si plusieurs clips sélectionnés → tous bougent ensemble *(étape 6, follow-up)*. |
+| **Drag depuis le corps du clip** | **Changement majeur** : ne déplace plus le clip. Démarre une drag-région comme si on était sur la lane vide. La règle de chevauchement partiel s'applique → typiquement sous-région à l'intérieur du clip. |
 | **Drag région entièrement hors clip qui enveloppe ≥1 clip** | Tous les clips enveloppés deviennent `clipSelection`. Aucun `regionSelection`. |
-| **Drag région avec ≥1 extrémité dans un clip** (chevauchement partiel) | Inchangé — `regionSelection` classique (sous-région). |
+| **Drag région avec ≥1 extrémité dans un clip** (chevauchement partiel) | `regionSelection` classique (sous-région). |
 | **Drag région entièrement hors clip, n'enveloppant aucun clip** | `regionSelection` classique (lane vide entre clips). |
-| **Drag depuis header** | Déplace le clip (comportement interact.js actuel). Si plusieurs clips sélectionnés → tous bougent ensemble *(étape 6, follow-up)*. |
 | **Click sur lane vide** | Inchangé — seek + clear de toutes les sélections. |
 | **Esc** | Clear `clipSelection` et `regionSelection`. |
 | **Delete / Suppr** | Supprime les clips de `clipSelection` si présent, sinon rien. |
 | **Cut / Copy / Paste** | Prend en priorité `clipSelection`, sinon `regionSelection`. |
+
+**Conséquence pour interact.js** : aujourd'hui `interact(el).draggable()` est attaché au clip entier, donc n'importe quel drag (header ou corps) bouge le clip. On restreint via `allowFrom: '[data-clip-header]'`. La resizable (poignées gauche/droite) reste inchangée — elle n'est active que sur les 6-8 px de bord.
 
 ### Relations entre états
 
@@ -31,13 +34,36 @@ On en ajoute un **troisième** : `clipSelection`, qui matérialise « un ou plus
 
 ---
 
-## ⏳ Étape 1 — Marquer le header dans le DOM
+## ⏳ Étape 1 — Marquer le header + restreindre interact.js au header
 
-Pour que `TrackView` puisse distinguer un click sur header vs corps du clip, le header doit porter un attribut data dédié.
+Deux changements couplés dans `Clip.jsx` :
+
+1. Marquer le header avec `data-clip-header="true"` pour que `TrackView` puisse le détecter.
+2. Restreindre `interact(el).draggable()` au header via `allowFrom`. Sinon, drag depuis le corps continue de déplacer le clip (et donc l'outil de sélection ne peut jamais s'activer depuis l'intérieur d'un clip).
 
 ### `src/trackview/Clip.jsx`
 
-Ajouter `data-clip-header="true"` sur la Box du header (ligne ~138) :
+**Restreindre le draggable** (modifier le `useEffect` ligne ~37) :
+
+```jsx
+interact(el).draggable({
+    allowFrom: "[data-clip-header]",   // ← NEW : seul le header initie un move
+    listeners: {
+        start() { el.classList.add("dragging"); },
+        move(e) {
+            /* ... inchangé ... */
+        },
+        end() {
+            /* ... inchangé ... */
+        },
+    },
+});
+// La resizable reste sur le clip entier — ses edges (left/right) couvrent
+// les 6-8 px de bord, déjà disjoints du header. Pas de conflit.
+interact(el).resizable({ /* ... inchangé ... */ });
+```
+
+**Marquer le header + ajuster les curseurs** (la Box du header ~ligne 138) :
 
 ```jsx
 <Box
@@ -49,18 +75,30 @@ Ajouter `data-clip-header="true"` sur la Box du header (ligne ~138) :
             : "linear-gradient(180deg, rgba(21,119,137,0.85), rgba(21,119,137,0.55))",
         borderBottom: "1px solid rgba(0, 0, 0, 0.15)",
         flexShrink: 0,
-        cursor: "pointer",
+        cursor: "grab",
+        "&:active": { cursor: "grabbing" },
     }}
 />
 ```
 
-Le `cursor: "pointer"` donne un retour visuel : le header se comporte comme un bouton.
+**Curseur de la Box racine du clip** (ligne ~124) — passer de `grab` à `crosshair` pour signaler que le corps initie une drag-région et non un move :
+
+```jsx
+// Box racine :
+sx={{
+    /* ... */
+    cursor: "crosshair",
+    // SUPPRIMER les overrides "&:active": { cursor: "grabbing" } sur la Box
+    // racine (ils datent de quand le corps était draggable).
+    /* ... */
+}}
+```
 
 ---
 
 ## ⏳ Étape 2 — Détecter header vs body dans `TrackView`
 
-On enrichit le `dragStateRef` avec `startedOnHeader` et `segId`. Les handlers existants se ramifient sur ce flag.
+Maintenant que drag-corps n'est plus du move, **le seul flag qui compte pour bypasser la logique de lane c'est `startedOnHeader`**. Le `startedOnClip` actuel disparaît (un drag commencé sur le corps doit suivre exactement le même chemin qu'un drag sur lane vide).
 
 ### `src/TrackView.jsx`
 
@@ -86,13 +124,12 @@ export default function TrackView({
 }) {
 ```
 
-**`onLanePointerDown`** : capter `data-clip-header` et `data-clip-id` :
+**`onLanePointerDown`** : on ne capture plus la pointer event que quand le pointeur démarre sur le header (puisque c'est le seul cas où interact.js prend le relais). Pour tout le reste — corps du clip OU lane vide — on capture et on suit le pointeur côté lane.
 
 ```jsx
 const onLanePointerDown = (e) => {
     if (e.button !== 0) return;
     const clipEl = e.target.closest("[data-clip-id]");
-    const startedOnClip = !!clipEl;
     const startedOnHeader = !!e.target.closest("[data-clip-header]");
     const segId = clipEl?.dataset.clipId ?? null;
     const t = xToTime(e.clientX);
@@ -100,17 +137,35 @@ const onLanePointerDown = (e) => {
         startTime: t,
         startX: e.clientX,
         dragged: false,
-        startedOnClip,
         startedOnHeader,
         segId,
     };
-    if (!startedOnClip) {
+    // Seul le header doit laisser interact.js prendre la main.
+    // Tout le reste (corps OU lane vide) part en région.
+    if (!startedOnHeader) {
         e.currentTarget.setPointerCapture?.(e.pointerId);
     }
 };
 ```
 
-**`onLanePointerUp`** : nouvelle ramification pour header + détection enclosure :
+**`onLanePointerMove`** — pareil, on simplifie : la branche `startedOnClip` disparaît, on commence à dessiner le rectangle dès qu'on bouge et qu'on n'est pas sur le header.
+
+```jsx
+const onLanePointerMove = (e) => {
+    const st = dragStateRef.current;
+    if (!st) return;
+    if (!st.dragged && Math.abs(e.clientX - st.startX) <= DRAG_THRESHOLD) return;
+    st.dragged = true;
+    if (st.startedOnHeader) return;
+    const t = xToTime(e.clientX);
+    setDragSel({
+        start: Math.min(st.startTime, t),
+        end: Math.max(st.startTime, t),
+    });
+};
+```
+
+**`onLanePointerUp`** : trois cas seulement.
 
 ```jsx
 const onLanePointerUp = (e) => {
@@ -118,26 +173,19 @@ const onLanePointerUp = (e) => {
     dragStateRef.current = null;
     if (!st) return;
 
-    // Cas 1 : Click sur header (sans drag) → sélection de clip
-    if (st.startedOnHeader && !st.dragged) {
-        const mods = { shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey };
-        onClipSelect?.(track.id, st.segId, mods);
-        // Pas de seek, pas de region change.
-        return;
-    }
-
-    // Cas 2 : Drag depuis un clip (header ou body) → interact.js a géré, on ignore
-    if (st.startedOnClip) {
+    // Cas 1 : Header
+    if (st.startedOnHeader) {
         if (!st.dragged) {
-            // Click corps du clip → seek + clear sélections
-            onSeek?.(track.id, st.startTime);
-            onRegionChange?.(null);
-            onClipSelectClear?.();
+            // Click sans drag → sélection de clip
+            const mods = { shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey };
+            onClipSelect?.(track.id, st.segId, mods);
         }
+        // Sinon interact.js a géré le move.
         return;
     }
 
-    // Cas 3 : Click sur lane vide (sans drag) → seek + clear
+    // Cas 2 : Click sans drag (sur corps du clip OU sur lane vide)
+    //         → seek + clear sélections
     if (!st.dragged) {
         onSeek?.(track.id, st.startTime);
         onRegionChange?.(null);
@@ -145,7 +193,7 @@ const onLanePointerUp = (e) => {
         return;
     }
 
-    // Cas 4 : Drag-région sur lane → décider region vs clipSelection
+    // Cas 3 : Drag-région (corps du clip OU lane vide) → decide region vs clipSelection
     const t = xToTime(e.clientX);
     const regionStart = Math.min(st.startTime, t);
     const regionEnd = Math.max(st.startTime, t);
@@ -450,12 +498,13 @@ const moveClips = (trackId, segIds, deltaSec) => {
 - Clic sur le **corps** d'un clip : seek du playhead, aucune sélection de clip.
 - Clic sur le **header** : le clip s'éclaire (bord + fond), aucun playhead bougé.
 - Shift/Ctrl + clic sur un autre header : 2 clips éclairés.
-- Drag-région d'une zone vide → drag-région d'une zone vide qui passe par-dessus un clip et finit dans le vide : le clip est entièrement sélectionné, pas de rectangle gris semi-transparent.
+- **Drag depuis le corps du clip** : ne déplace plus le clip ; commence à dessiner une drag-région. Si on relâche dans le même clip → sous-région classique.
+- **Drag depuis le header** : déplace le clip (le seul moyen). Move impossible depuis le corps.
+- Drag-région d'une zone vide qui passe par-dessus un clip et finit dans le vide : le clip est entièrement sélectionné, pas de rectangle gris semi-transparent.
 - Drag-région qui commence dans un clip et finit dans le vide (ou inversement) : rectangle gris classique, le clip n'est PAS marqué comme sélectionné.
 - Drag-région qui commence dans le vide entre deux clips, sans en couvrir aucun : rectangle gris classique.
 - `Suppr` avec `clipSelection` : les clips sélectionnés disparaissent. Undo les ramène.
 - Cut / Copy / Paste avec `clipSelection` : copie les clips entiers ; paste au playhead les recolle (positions relatives conservées).
-- Drag depuis un header : déplace le clip (single — multi reporté à l'étape 6).
 - Esc : clear `clipSelection` et `regionSelection`.
 
 ---
@@ -464,8 +513,8 @@ const moveClips = (trackId, segIds, deltaSec) => {
 
 | # | Étape | État | Effort |
 |---|-------|------|--------|
-| 1 | `data-clip-header` sur la Box du header | ⏳ | Trivial |
-| 2 | Branches `TrackView` : header vs body, partial vs enclosed | ⏳ | Moyen |
+| 1 | `data-clip-header` + `allowFrom` interact.js + curseurs | ⏳ | Faible |
+| 2 | Branches `TrackView` : header seul bypass la lane ; partial vs enclosed | ⏳ | Moyen |
 | 3 | État `clipSelection` + handlers dans `AudioRecorder` | ⏳ | Faible |
 | 4 | Wire `isSelected` sur `Clip` (déjà supporté) | ⏳ | Trivial |
 | 5 | Delete + Cut/Copy étendus à `clipSelection` | ⏳ | Faible |

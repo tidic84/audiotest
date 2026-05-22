@@ -39,8 +39,8 @@ export default function TimelineAxis({ projectDuration, pxPerSec, isTopAxis = fa
                             top: 0,
                             bottom: 0,
                             borderLeft: showLabel
-                                ? "1px solid #bbb"
-                                : "1px solid #e0e0e0",
+                                ? "1px solid #aaa"
+                                : "1px solid #ccc",
                             paddingLeft: "2px",
                             fontSize: 9,
                             color: "#888",

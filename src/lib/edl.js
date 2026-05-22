@@ -265,3 +265,17 @@ export function trimSegment(edl, segId, deltaLeft, deltaRight) {
         return { ...s, vStart: newVStart, srcStart: newSrcStart, srcEnd: newSrcEnd };
     });
 }
+
+export function removeSegment(edl, segId) {
+    return edl.filter((s) => s.id !== segId);
+}
+
+// Insère un segment à la position vStart absolue.
+// Punch-in : tout ce qui chevauche [vStart, vStart + dur] dans la cible est
+// coupé via cutRange (partie gauche / droite conservée, milieu remplacé).
+export function insertSegmentAt(edl, seg, vStart) {
+    const dur = seg.srcEnd - seg.srcStart;
+    const cleared = cutRange(edl, vStart, vStart + dur);
+    const placed = { ...seg, vStart };
+    return [...cleared, placed].sort((a, b) => a.vStart - b.vStart);
+}

@@ -13,20 +13,17 @@ import RedoIcon from "@mui/icons-material/RedoOutlined";
 import Divider from "@mui/material/Divider";
 
 import TrackView from "./TrackView";
-import { makeTrack, makeSegment, virtualDuration } from "./lib/edl";
 import { scheduleTrackFrom, stopSources } from "./lib/playback";
 import TimelineAxis from "./trackview/TimelineAxis";
 import LiveRecordingLane from "./trackview/LiveRecordingLane";
 import {
     projectPaths,
-    saveAudioBlob,
     deleteAudioFile,
 } from "./lib/storageUtil";
 import { useProjectPersistence } from "./hooks/useProjectPersistence";
 import { useRecorder } from "./hooks/useRecorder";
-import Timeline from "./Timeline";
 import { formatTime } from "./Timeline";
-import { cutRange, extractRange, insertAt, splitAt, moveSegment, trimSegment } from "./lib/edl";
+import { cutRange, extractRange, insertAt, splitAt, moveSegment, trimSegment, removeSegment, insertSegmentAt, virtualDuration } from "./lib/edl";
 import SplitIcon from "./SplitIcon";
 
 export default function AudioRecorder({ audioUrl, obs, metadata }) {
@@ -320,6 +317,34 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
         );
     };
 
+    const moveClipAcrossTracks = (srcTrackId, dstTrackId, segId, newVStart) => {
+        if (srcTrackId === dstTrackId) return;
+        const srcTrack = tracks.find((t) => t.id === srcTrackId);
+        if (!srcTrack) return;
+        const seg = srcTrack.edl.find((s) => s.id === segId);
+        if (!seg) return;
+
+        // Préserve buffer + bufferTrackId. Si le segment n'en avait pas (= clip "natif" de la piste source), on les remplit maintenant : sinon le segment basculerait sur le buffer de la piste cible et lirait le mauvais son.
+        const portableSeg = {
+            ...seg,
+            buffer: seg.buffer ?? srcTrack.buffer,
+            bufferTrackId: seg.bufferTrackId ?? srcTrack.id,
+        };
+
+        setTracksWithHistory((ts) =>
+            ts.map((t) => {
+                if (t.id === srcTrackId) {
+                    return { ...t, edl: removeSegment(t.edl, segId) }
+                }
+                if (t.id === dstTrackId) {
+                    const next = insertSegmentAt(t.edl, portableSeg, newVStart);
+                    return { ...t, edl: next }
+                }
+                return t;
+            })
+        );
+    }
+
     const trimClip = (trackId, segId, deltaLeft, deltaRight) => {
         setTracksWithHistory((ts) =>
             ts.map((t) =>
@@ -445,6 +470,7 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
                             onRename={renameTrack}
                             pxPerSec={pxPerSec}
                             onClipMove={moveClip}
+                            onClipMoveAcrossTracks={moveClipAcrossTracks}
                             onClipTrim={trimClip}
                         />
                     );
