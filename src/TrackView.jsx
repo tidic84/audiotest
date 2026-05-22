@@ -1,7 +1,4 @@
-import { useMemo, useState, useEffect, useRef } from "react";
-import { useWavesurfer } from "@wavesurfer/react";
-import RegionsPlugin from "wavesurfer.js/dist/plugins/regions.esm.js";
-import TimelinePlugin from "wavesurfer.js/dist/plugins/timeline.esm.js";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Box from "@mui/material/Box";
 import Stack from "@mui/material/Stack";
 import Divider from "@mui/material/Divider";
@@ -10,7 +7,13 @@ import DeleteIcon from "@mui/icons-material/DeleteOutlined";
 import EditIcon from "@mui/icons-material/EditOutlined";
 import TextField from "@mui/material/TextField";
 
-import { virtualDuration, computeVirtualPeaks } from "./lib/edl";
+import Clip from "./trackview/Clip";
+import TimelineAxis from "./trackview/TimelineAxis";
+import Playhead from "./trackview/Playhead";
+import SelectionOverlay from "./trackview/SelectionOverlay";
+
+const DRAG_THRESHOLD = 3;
+const LANE_HEIGHT = 80;
 
 export default function TrackView({
     track,
@@ -18,172 +21,133 @@ export default function TrackView({
     isSelected,
     onSeek,
     onDelete,
-    playheadTime, // temps virtuel actuel sur cette piste (null si pas en lecture)
+    playheadTime,
     regionSelection,
     onRegionChange,
     onRename,
+    onClipMove,
+    onClipTrim,
 }) {
-    const dur = useMemo(() => virtualDuration(track), [track]);
-    const widthPct = projectDuration > 0 ? (dur / projectDuration) * 100 : 100;
-    const peaks = useMemo(
-        () => computeVirtualPeaks(track.buffer, track.edl, 4000),
-        [track],
-    );
-    // Stabilise la référence du tableau pour ne pas re-déclencher son setOptions interne à chaque render.
-    const peaksProp = useMemo(() => [peaks], [peaks]);
-
-    const containerRef = useRef(null);
-    const [selection, setSelection] = useState(null);
-
-    // Pour rename
-    const [isRenaming, setIsRenaming] = useState(false);
-    const [draftName, setDraftName] = useState(track.name);
-
-    const regionsPlugin = useMemo(() => RegionsPlugin.create(), []);
-    const timelinePlugin = useMemo(
-        () =>
-            TimelinePlugin.create({
-                height: 100,
-                insertPosition: "beforebegin",
-                timeInterval: 0.2,
-                primaryLabelInterval: 5,
-                secondaryLabelInterval: 1,
-                style: {
-                    fontSize: "0px",
-                    color: "#2D5B88",
-                },
-            }),
-        [],
-    );
+    const laneRef = useRef(null);
+    const [laneWidth, setLaneWidth] = useState(0);
+    const pxPerSec = projectDuration > 0 ? laneWidth / projectDuration : 0;
 
     useEffect(() => {
-        const unsubCreated = regionsPlugin.on("region-created", (region) => {
-            regionsPlugin.getRegions().forEach((r) => {
-                if (r.id !== region.id) r.remove();
-            });
-            setSelection({ start: region.start, end: region.end });
-            onRegionChange?.({
-                trackId: track.id,
-                start: region.start,
-                end: region.end,
-            });
+        const el = laneRef.current;
+        if (!el) return;
+        setLaneWidth(el.clientWidth);
+        const ro = new ResizeObserver(([entry]) => {
+            setLaneWidth(entry.contentRect.width);
         });
-        const unsubUpdated = regionsPlugin.on("region-updated", (region) => {
-            setSelection({ start: region.start, end: region.end });
-            onRegionChange?.({
-                trackId: track.id,
-                start: region.start,
-                end: region.end,
-            });
-        });
-        return () => {
-            unsubCreated();
-            unsubUpdated();
-        };
-    }, [regionsPlugin, onRegionChange, track.id]);
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, []);
 
-    // Vide les régions de cette piste quand la sélection courante n'est pas la sienne
-    // (autre piste active OU sélection effacée par un click).
-    useEffect(() => {
-        if (regionSelection?.trackId !== track.id) {
-            regionsPlugin.getRegions().forEach((r) => r.remove());
-            setSelection(null);
+    // Sélection en cours de construction (drag souris sur la lane).
+    // Quand le drag se termine, on commit via onRegionChange et on remet à null.
+    const [dragSel, setDragSel] = useState(null);
+    const dragStateRef = useRef(null);
+
+    // Bornes [minVStart, maxVStart] par segment, basées sur les voisins.
+    // Sert à clamper le drag de chaque clip pour empêcher tout chevauchement.
+    const clipBounds = useMemo(() => {
+        const sorted = [...track.edl].sort((a, b) => a.vStart - b.vStart);
+        const map = {};
+        for (let i = 0; i < sorted.length; i++) {
+            const seg = sorted[i];
+            const prev = sorted[i - 1];
+            const next = sorted[i + 1];
+            const segDur = seg.srcEnd - seg.srcStart;
+            const minVStart = prev ? prev.vStart + (prev.srcEnd - prev.srcStart) : 0;
+            const maxVStart = next ? next.vStart - segDur : Infinity;
+            map[seg.id] = { minVStart, maxVStart };
         }
-    }, [regionSelection, track.id, regionsPlugin]);
+        return map;
+    }, [track.edl]);
 
-    const plugins = useMemo(
-        () => [regionsPlugin, timelinePlugin],
-        [regionsPlugin, timelinePlugin],
-    );
+    const xToTime = (clientX) => {
+        if (pxPerSec <= 0) return 0;
+        const rect = laneRef.current.getBoundingClientRect();
+        const x = clientX - rect.left;
+        return Math.max(0, Math.min(projectDuration, x / pxPerSec));
+    };
 
-    const { wavesurfer } = useWavesurfer({
-        container: containerRef,
-        height: 80,
-        waveColor: "rgb(34, 173, 197)",
-        progressColor: "rgb(64, 107, 114)",
-        peaks: peaksProp,
-        duration: dur,
-        plugins,
-    });
+    const onLanePointerDown = (e) => {
+        if (e.button !== 0) return;
+        // Drag qui commence sur un clip = interact.js le pilote. La lane
+        // n'arme pas de drag-de-sélection et ne capture pas le pointeur.
+        const startedOnClip = !!e.target.closest("[data-clip-id]");
+        const t = xToTime(e.clientX);
+        dragStateRef.current = { startTime: t, startX: e.clientX, dragged: false, startedOnClip };
+        if (!startedOnClip) {
+            e.currentTarget.setPointerCapture?.(e.pointerId);
+        }
+    };
 
-    useEffect(() => {
-        if (!wavesurfer) return;
-        const unsub = regionsPlugin.enableDragSelection({
-            color: "rgba(0, 0, 0, 0.2)",
-            drag: true,
-            resize: true,
+    const onLanePointerMove = (e) => {
+        const st = dragStateRef.current;
+        if (!st) return;
+        if (!st.dragged && Math.abs(e.clientX - st.startX) <= DRAG_THRESHOLD) return;
+        st.dragged = true;
+        if (st.startedOnClip) return;
+        const t = xToTime(e.clientX);
+        setDragSel({
+            start: Math.min(st.startTime, t),
+            end: Math.max(st.startTime, t),
         });
-        return () => {
-            unsub?.();
-        };
-    }, [wavesurfer, regionsPlugin]);
+    };
 
-    // Synchronise le curseur de progression de wavesurfer avec le playhead custom.
-    useEffect(() => {
-        if (!wavesurfer || dur <= 0 || playheadTime == null) return;
-        const ratio = Math.max(0, Math.min(1, playheadTime / dur));
-        wavesurfer.seekTo(ratio);
-    }, [wavesurfer, playheadTime, dur]);
+    const onLanePointerUp = (e) => {
+        const st = dragStateRef.current;
+        dragStateRef.current = null;
+        if (!st) return;
+        if (st.startedOnClip) {
+            // Simple clic sur un clip (pas de drag interact.js) → on positionne
+            // quand même le playhead. Si l'utilisateur a draggé, interact.js
+            // a déjà géré le move et on ne touche pas au playhead.
+            if (!st.dragged) {
+                onSeek?.(track.id, st.startTime);
+                onRegionChange?.(null);
+            }
+            return;
+        }
+        if (!st.dragged) {
+            onSeek?.(track.id, st.startTime);
+            onRegionChange?.(null);
+            return;
+        }
+        const t = xToTime(e.clientX);
+        setDragSel(null);
+        onRegionChange?.({
+            trackId: track.id,
+            start: Math.min(st.startTime, t),
+            end: Math.max(st.startTime, t),
+        });
+    };
 
-    // Escape : efface la sélection (utile quand la région couvre toute la zone et qu'on ne peut plus draguer une zone vide pour la recréer).
     useEffect(() => {
         const onKey = (e) => {
             if (e.key === "Escape") {
-                regionsPlugin.getRegions().forEach((r) => r.remove());
-                setSelection(null);
-                onRegionChange?.(null);
+                setDragSel(null);
+                if (regionSelection?.trackId === track.id) {
+                    onRegionChange?.(null);
+                }
             }
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
-    }, [regionsPlugin, onRegionChange]);
+    }, [regionSelection, track.id, onRegionChange]);
 
-    // Seek manuel : enableDragSelection appelle preventDefault sur pointerdown,
-    // ce qui supprime l'event click. On reconstruit la logique click-to-seek via pointerdown/up.
-    useEffect(() => {
-        if (!wavesurfer) return;
-        const wrapper = wavesurfer.getWrapper();
-        if (!wrapper) return;
+    // Visible = drag local OU sélection committée pour cette piste
+    const visibleSelection =
+        dragSel ??
+        (regionSelection?.trackId === track.id
+            ? { start: regionSelection.start, end: regionSelection.end }
+            : null);
 
-        let downX = null;
-        let dragged = false;
-        const THRESHOLD = 3;
-
-        const onDown = (e) => {
-            downX = e.clientX;
-            dragged = false;
-        };
-        const onMove = (e) => {
-            if (downX === null) return;
-            if (Math.abs(e.clientX - downX) > THRESHOLD) dragged = true;
-        };
-        const onUp = (e) => {
-            if (downX !== null && !dragged) {
-                const rect = wrapper.getBoundingClientRect();
-                const ratio = Math.max(
-                    0,
-                    Math.min(1, (e.clientX - rect.left) / rect.width),
-                );
-                wavesurfer.seekTo(ratio);
-                onSeek?.(track.id, ratio * dur);
-                // Click simple = on efface la région.
-                regionsPlugin.getRegions().forEach((r) => r.remove());
-                setSelection(null);
-                onRegionChange?.(null);
-            }
-            downX = null;
-            dragged = false;
-        };
-
-        wrapper.addEventListener("pointerdown", onDown);
-        document.addEventListener("pointermove", onMove);
-        document.addEventListener("pointerup", onUp);
-        return () => {
-            wrapper.removeEventListener("pointerdown", onDown);
-            document.removeEventListener("pointermove", onMove);
-            document.removeEventListener("pointerup", onUp);
-        };
-    }, [wavesurfer, onSeek, track.id, dur, regionsPlugin, onRegionChange]);
+    // Rename
+    const [isRenaming, setIsRenaming] = useState(false);
+    const [draftName, setDraftName] = useState(track.name);
 
     return (
         <Box
@@ -192,40 +156,62 @@ export default function TrackView({
                 borderTop: isSelected ? "0.1px solid #1565c0" : "0px solid #fff",
             }}
         >
-            <Stack direction="row" alignItems="center" spacing={1}>
-                {/* Conteneur "rail temporel" : prend toute la place restante, identique sur chaque piste.
-                    widthPct% est ensuite appliqué sur cette largeur stable -> px/sec aligné inter-pistes. */}
-                <Box sx={{ flex: 1, minWidth: 0, position: "relative" }}>
+            <Stack direction="row" alignItems="stretch" spacing={1}>
+                <Box sx={{ flex: 1, minWidth: 0 }}>
                     <Box
+                        ref={laneRef}
+                        onPointerDown={onLanePointerDown}
+                        onPointerMove={onLanePointerMove}
+                        onPointerUp={onLanePointerUp}
                         sx={{
-                            width: `${widthPct}%`,
                             position: "relative",
+                            width: "100%",
+                            height: LANE_HEIGHT,
+                            background: "#fafafa",
                             overflow: "hidden",
-                            borderRadius: 1,
+                            touchAction: "none",
+                            userSelect: "none",
+                            cursor: "crosshair",
                         }}
                     >
-                        <Box ref={containerRef} />
-                        {playheadTime != null && dur > 0 && (
-                            <Box
-                                sx={{
-                                    position: "absolute",
-                                    left: `${(playheadTime / dur) * 100}%`,
-                                    top: 0,
-                                    bottom: 0,
-                                    width: "2px",
-                                    bgcolor: "red",
-                                    pointerEvents: "none",
-                                    zIndex: 2,
-                                }}
+                        {pxPerSec > 0 && (
+                            <TimelineAxis
+                                projectDuration={projectDuration}
+                                pxPerSec={pxPerSec}
                             />
+                        )}
+                        {pxPerSec > 0 &&
+                            track.edl.map((seg) => (
+                                <Clip
+                                    key={seg.id}
+                                    segment={seg}
+                                    trackId={track.id}
+                                    trackBuffer={track.buffer}
+                                    pxPerSec={pxPerSec}
+                                    onMove={onClipMove}
+                                    onClipTrim={onClipTrim}
+                                    bounds={clipBounds[seg.id]}
+                                />
+                            ))}
+                        {visibleSelection && (
+                            <SelectionOverlay
+                                start={visibleSelection.start}
+                                end={visibleSelection.end}
+                                pxPerSec={pxPerSec}
+                            />
+                        )}
+                        {playheadTime != null && (
+                            <Playhead time={playheadTime} pxPerSec={pxPerSec} />
                         )}
                     </Box>
                 </Box>
+
                 <Divider
                     orientation="vertical"
                     flexItem
                     sx={{ alignSelf: "stretch" }}
                 />
+
                 <Stack
                     spacing={0}
                     paddingRight={7}
@@ -240,7 +226,7 @@ export default function TrackView({
                         display="flex"
                         justifyContent="left"
                         alignItems="center"
-                        sx={{ position: "relative", overflow: "visible" }}
+                        sx={{ position: "relative", overflow: "visible", marginTop:1 }}
                     >
                         {isRenaming ? (
                             <TextField

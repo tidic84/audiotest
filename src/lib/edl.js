@@ -42,6 +42,30 @@ export function segmentBuffer(seg, trackBuffer) {
     return b && typeof b.getChannelData === "function" ? b : trackBuffer;
 }
 
+// Peaks pour UN segment uniquement, à dessiner dans son propre canvas.
+// Le tableau retourné a exactement `targetLen` bins.
+export function computeSegmentPeaks(seg, trackBuffer, targetLen) {
+    const peaks = new Float32Array(targetLen);
+    const segBuf = segmentBuffer(seg, trackBuffer);
+    if (!segBuf || targetLen <= 0) return peaks;
+    const ch = segBuf.getChannelData(0);
+    const sr = segBuf.sampleRate;
+    const s0 = Math.floor(seg.srcStart * sr);
+    const s1 = Math.floor(seg.srcEnd * sr);
+    const binSize = (s1 - s0) / Math.max(targetLen, 1);
+    for (let i = 0; i < targetLen; i++) {
+        const a = Math.floor(s0 + i * binSize);
+        const b = Math.floor(s0 + (i + 1) * binSize);
+        let max = 0;
+        for (let j = a; j < b && j < ch.length; j++) {
+            const v = Math.abs(ch[j]);
+            if (v > max) max = v;
+        }
+        peaks[i] = max;
+    }
+    return peaks;
+}
+
 // Construit les peaks de la timeline virtuelle à partir du buffer + EDL.
 // Chaque segment dessine sa portion à [seg.vStart, seg.vStart + dur] dans le tableau.
 // Les bins non couverts restent à 0 (= silence visuel, trous entre clips).
@@ -188,7 +212,7 @@ export function virtualToSource(edl, vTime) {
         const segVEnd = seg.vStart + (seg.srcEnd - seg.srcStart);
         if (vTime >= seg.vStart && vTime < segVEnd) {
             return { seg, srcTime: seg.srcStart + (vTime - seg.vStart) };
-        } 
+        }
     }
     return null; // dans un trou (ou après la fin)
 }
@@ -200,5 +224,44 @@ export function ensureAbsolutePositions(edl) {
         const out = { ...seg, vStart: acc };
         acc += seg.srcEnd - seg.srcStart;
         return out;
+    });
+}
+
+// Coupe le segment à la position vTime.
+export function splitAt(edl, vTime) {
+    if (edl.length === 0) return edl;
+    const result = [];
+    for (const seg of edl) {
+        const segVStart = seg.vStart;
+        const segDur = seg.srcEnd - seg.srcStart;
+        const segVEnd = segVStart + segDur;
+        if (segVEnd <= vTime || segVStart >= vTime) {
+            result.push(seg);
+        } else {
+            const splitSrc = seg.srcStart + (vTime - segVStart);
+            result.push(makeSegment(segVStart, seg.srcStart, splitSrc, seg.buffer, seg.bufferTrackId));
+            result.push(makeSegment(vTime, splitSrc, seg.srcEnd, seg.buffer, seg.bufferTrackId));
+        }
+    }
+    return result;
+}
+
+// Drag horizontal d'un clip
+export function moveSegment(edl, segId, deltaSec) {
+    return edl.map((s) => {
+        if (s.id !== segId) return s;
+        return { ...s, vStart: Math.max(0, s.vStart + deltaSec) };
+    });
+}
+
+// Trim des bords d'un clip
+export function trimSegment(edl, segId, deltaLeft, deltaRight) {
+    return edl.map((s) => {
+        if (s.id !== segId) return s;
+        const newSrcStart = Math.max(0, s.srcStart + deltaLeft);
+        const newVStart = Math.max(0, s.vStart + deltaLeft);
+        const newSrcEnd = Math.min(/* buffer.duration */ Infinity, s.srcEnd + deltaRight);
+        if (newSrcEnd <= newSrcStart) return s;
+        return { ...s, vStart: newVStart, srcStart: newSrcStart, srcEnd: newSrcEnd };
     });
 }

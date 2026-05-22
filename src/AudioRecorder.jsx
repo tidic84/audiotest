@@ -10,10 +10,13 @@ import ContentPasteIcon from "@mui/icons-material/ContentPasteOutlined";
 import ContentCutIcon from "@mui/icons-material/ContentCutOutlined";
 import UndoIcon from "@mui/icons-material/UndoOutlined";
 import RedoIcon from "@mui/icons-material/RedoOutlined";
+import Divider from "@mui/material/Divider";
 
 import TrackView from "./TrackView";
 import { makeTrack, makeSegment, virtualDuration } from "./lib/edl";
 import { scheduleTrackFrom, stopSources } from "./lib/playback";
+import TimelineAxis from "./trackview/TimelineAxis";
+import LiveRecordingLane from "./trackview/LiveRecordingLane";
 import {
     projectPaths,
     saveAudioBlob,
@@ -23,7 +26,8 @@ import { useProjectPersistence } from "./hooks/useProjectPersistence";
 import { useRecorder } from "./hooks/useRecorder";
 import Timeline from "./Timeline";
 import { formatTime } from "./Timeline";
-import { cutRange, extractRange, insertAt } from "./lib/edl";
+import { cutRange, extractRange, insertAt, splitAt, moveSegment, trimSegment } from "./lib/edl";
+import SplitIcon from "./SplitIcon";
 
 export default function AudioRecorder({ audioUrl, obs, metadata }) {
     const audioCtxRef = useRef(null);
@@ -44,6 +48,7 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
     const rafRef = useRef(null);
     const sourcesRef = useRef([]);
 
+
     const paths = useMemo(
         () =>
             metadata?.local_path && obs
@@ -56,17 +61,46 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
         [metadata?.local_path, obs],
     );
 
-    const projectDuration = useMemo(
-        () => tracks.reduce((max, t) => Math.max(max, virtualDuration(t)), 0),
-        [tracks],
-    );
-
     useProjectPersistence({ paths, audioCtxRef, audioUrl, tracks, setTracks });
-    const { isRecording, startRecording, stopRecording } = useRecorder({
+    const {
+        isRecording,
+        startRecording,
+        stopRecording,
+        recordingDuration,
+        peaksRef,
+        sampleHz,
+    } = useRecorder({
         paths,
         audioCtxRef,
         setTracks,
     });
+
+    const projectDuration = useMemo(
+        () => {
+            const trackMax = tracks.reduce((max, t) => Math.max(max, virtualDuration(t)), 0);
+            if (recordingDuration <= 0) return trackMax;
+            // Pendant l'enregistrement, élargit la timeline par paliers de 5s
+            // avec ~5s de marge à droite. Donne de la place au clip live pour
+            // grandir visuellement, et évite que pxPerSec change à chaque tick
+            // d'update de recordingDuration (saut tous les 5s seulement).
+            const liveWindow = Math.max(10, Math.ceil(recordingDuration / 5) * 5 + 5);
+            return Math.max(trackMax, liveWindow);
+        },
+        [tracks, recordingDuration],
+    );
+
+    const laneRef = useRef(null);
+    const [laneWidth, setLaneWidth] = useState(0);
+    const pxPerSec = projectDuration > 0 ? laneWidth / projectDuration : 0;
+
+    useEffect(() => {
+        const el = laneRef.current;
+        if (!el) return;
+        setLaneWidth(el.clientWidth);
+        const ro = new ResizeObserver(([e]) => setLaneWidth(e.contentRect.width));
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, []);
 
     // Pour afficher le temps meme quand on ne joue pas de track
     const displayTime = isPlaying
@@ -211,20 +245,40 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
     useEffect(() => {
         const onKey = (e) => {
             const isCmd = e.ctrlKey || e.metaKey;
+
+            // Undo shortcut
             if (isCmd && e.key.toLowerCase() === "z" && !e.shiftKey) {
                 e.preventDefault();
                 undo();
-            } else if (
+            } 
+            // Redo shortcut
+            else if (
                 (isCmd && e.key.toLowerCase() === "y") ||
                 (isCmd && e.shiftKey && e.key.toLowerCase() === "z")
-            ) {
+            ){
                 e.preventDefault();
                 redo();
+            } 
+            // Copy shortcut
+            else if (isCmd && e.key.toLowerCase() === "c") {
+                e.preventDefault();
+                copySelection();
             }
-        };
+            // Paste shortcut
+            else if (isCmd && e.key.toLowerCase() === "v") {
+                e.preventDefault();
+                pasteAtCursor();
+            }
+            // Cut shortcut
+            else if (isCmd && e.key.toLowerCase() === "x") {
+                console.log("Cut shortcut");
+                e.preventDefault();
+                cutSelection();
+            }
+        };  
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
-    }, [past, future, tracks]);
+    }, [past, future, tracks, selection, regionSelection, clipboard]);
 
     const undo = () => {
         if (past.length === 0) return;
@@ -240,6 +294,38 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
         setFuture((f) => f.slice(1));
         setPast((p) => [...p, tracks]);
         setTracks(next);
+    };
+
+    // Split à la position du playhead (suit le curseur en lecture).
+    const splitAtPlayhead = () => {
+        const trackId = isPlaying
+            ? playingFromRef.current?.trackId
+            : selection?.trackId;
+        if (trackId == null) return;
+        const time = isPlaying
+            ? (playingFromRef.current?.startTime ?? 0) + playerHeadTime
+            : (selection?.time ?? 0);
+        setTracksWithHistory((ts) =>
+            ts.map((t) =>
+                t.id === trackId ? { ...t, edl: splitAt(t.edl, time) } : t
+            )
+        );
+    };
+
+    const moveClip = (trackId, segId, deltaSec) => {
+        setTracksWithHistory((ts) =>
+            ts.map((t) =>
+                t.id === trackId ? { ...t, edl: moveSegment(t.edl, segId, deltaSec) } : t
+            )
+        );
+    };
+
+    const trimClip = (trackId, segId, deltaLeft, deltaRight) => {
+        setTracksWithHistory((ts) =>
+            ts.map((t) =>
+                t.id === trackId ? { ...t, edl: trimSegment(t.edl, segId, deltaLeft, deltaRight) } : t
+            )
+        );
     };
 
     return (
@@ -294,6 +380,14 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
                 </IconButton>
                 <IconButton
                     size="small"
+                    onClick={splitAtPlayhead}
+                    disabled={!selection && !isPlaying}
+                    title="Split at cursor"
+                >
+                    <SplitIcon fontSize="small" />
+                </IconButton>
+                <IconButton
+                    size="small"
                     onClick={undo}
                     disabled={past.length === 0}
                     title="Undo"
@@ -309,7 +403,22 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
                     <RedoIcon fontSize="small" />
                 </IconButton>
             </Stack>
-            {/* <Timeline projectDuration={projectDuration} /> */}
+
+            <Box sx={{ border: "1px solid transparent" }}>
+                <Stack direction="row" alignItems="stretch" spacing={1}>
+                    <Box
+                        ref={laneRef}
+                        sx={{ flex: 1, minWidth: 0, position: "relative", height: 16, paddingBottom: 0 }}
+                    >
+                        <TimelineAxis projectDuration={projectDuration} pxPerSec={pxPerSec} isTopAxis={true} />
+                    </Box>
+                    <Divider orientation="vertical" flexItem sx={{ alignSelf: "stretch" }} />
+                    <Stack spacing={0} paddingRight={7} paddingLeft={0} margin={0}>
+                        <Box minWidth={60} maxWidth={60} />
+                    </Stack>
+                </Stack>
+            </Box>
+
             {tracks.length > 0 ? (
                 tracks.map((t) => {
                     const isSel = selection?.trackId === t.id;
@@ -334,13 +443,25 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
                             regionSelection={regionSelection}
                             onRegionChange={setRegionSelection}
                             onRename={renameTrack}
+                            pxPerSec={pxPerSec}
+                            onClipMove={moveClip}
+                            onClipTrim={trimClip}
                         />
                     );
                 })
-            ) : (
+            ) : !isRecording ? (
                 <Box sx={{ color: "#666", p: 4, borderBottom: "1px solid #777", borderLeft: "1px solid #777", borderRight: "1px solid #777" }}>
                     No tracks to display
                 </Box>
+            ) : null}
+
+            {isRecording && (
+                <LiveRecordingLane
+                    peaksRef={peaksRef}
+                    pxPerSec={pxPerSec}
+                    sampleHz={sampleHz}
+                    trackNumber={tracks.length + 1}
+                />
             )}
         </Box>
     );
