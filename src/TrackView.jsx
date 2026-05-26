@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Box from "@mui/material/Box";
 import Stack from "@mui/material/Stack";
 import Divider from "@mui/material/Divider";
@@ -14,6 +14,10 @@ import SelectionOverlay from "./trackview/SelectionOverlay";
 
 const DRAG_THRESHOLD = 3;
 const LANE_HEIGHT = 80;
+// Doit rester aligné avec la `margin` interact.js resizable (10 par défaut).
+// Sert à savoir si un pointerdown au bord du clip relève du resize (et non
+// d'une sélection de région intra-clip).
+const CLIP_RESIZE_MARGIN = 10;
 
 export default function TrackView({
     track,
@@ -28,6 +32,9 @@ export default function TrackView({
     onClipMove,
     onClipMoveAcrossTracks,
     onClipTrim,
+    clipSelection,
+    onClipSelect,
+    onClearClipSelection,
 }) {
     const laneRef = useRef(null);
     const [laneWidth, setLaneWidth] = useState(0);
@@ -49,23 +56,6 @@ export default function TrackView({
     const [dragSel, setDragSel] = useState(null);
     const dragStateRef = useRef(null);
 
-    // Bornes [minVStart, maxVStart] par segment, basées sur les voisins.
-    // Sert à clamper le drag de chaque clip pour empêcher tout chevauchement.
-    const clipBounds = useMemo(() => {
-        const sorted = [...track.edl].sort((a, b) => a.vStart - b.vStart);
-        const map = {};
-        for (let i = 0; i < sorted.length; i++) {
-            const seg = sorted[i];
-            const prev = sorted[i - 1];
-            const next = sorted[i + 1];
-            const segDur = seg.srcEnd - seg.srcStart;
-            const minVStart = prev ? prev.vStart + (prev.srcEnd - prev.srcStart) : 0;
-            const maxVStart = next ? next.vStart - segDur : Infinity;
-            map[seg.id] = { minVStart, maxVStart };
-        }
-        return map;
-    }, [track.edl]);
-
     const xToTime = (clientX) => {
         if (pxPerSec <= 0) return 0;
         const rect = laneRef.current.getBoundingClientRect();
@@ -75,14 +65,47 @@ export default function TrackView({
 
     const onLanePointerDown = (e) => {
         if (e.button !== 0) return;
-        // Drag qui commence sur un clip = interact.js le pilote. La lane
-        // n'arme pas de drag-de-sélection et ne capture pas le pointeur.
-        const startedOnClip = !!e.target.closest("[data-clip-id]");
-        const t = xToTime(e.clientX);
-        dragStateRef.current = { startTime: t, startX: e.clientX, dragged: false, startedOnClip };
-        if (!startedOnClip) {
-            e.currentTarget.setPointerCapture?.(e.pointerId);
+        // Si le pointerdown vient du header d'un clip, ne rien armer côté lane :
+        // le header gère sa propre logique (clic = sélection, drag = move via interactjs)
+        // et a déjà stoppé la propagation. Garde-fou si jamais le stopPropagation
+        // n'a pas eu lieu.
+        if (e.target.closest("[data-clip-header]")) return;
+
+        const clipEl = e.target.closest("[data-clip-id]");
+        // Si le pointerdown est dans la zone de resize (bord gauche/droit du
+        // clip), interact.js gère le resize → on n'arme rien côté lane sinon
+        // une région se dessinerait par-dessus le resize.
+        if (clipEl) {
+            const rect = clipEl.getBoundingClientRect();
+            if (
+                e.clientX < rect.left + CLIP_RESIZE_MARGIN ||
+                e.clientX > rect.right - CLIP_RESIZE_MARGIN
+            ) {
+                return;
+            }
         }
+        const clipSeg = clipEl
+            ? track.edl.find((s) => s.id === clipEl.dataset.clipId)
+            : null;
+        const t = xToTime(e.clientX);
+        dragStateRef.current = {
+            startTime: t,
+            startX: e.clientX,
+            dragged: false,
+            clipSeg, // segment ciblé si le drag commence dans le body d'un clip
+        };
+        e.currentTarget.setPointerCapture?.(e.pointerId);
+    };
+
+    // Clamp [start,end] aux bornes d'un segment (drag intra-clip).
+    const clampToClip = (start, end, clipSeg) => {
+        if (!clipSeg) return { start, end };
+        const vStart = clipSeg.vStart;
+        const vEnd = vStart + (clipSeg.srcEnd - clipSeg.srcStart);
+        return {
+            start: Math.max(vStart, start),
+            end: Math.min(vEnd, end),
+        };
     };
 
     const onLanePointerMove = (e) => {
@@ -90,39 +113,43 @@ export default function TrackView({
         if (!st) return;
         if (!st.dragged && Math.abs(e.clientX - st.startX) <= DRAG_THRESHOLD) return;
         st.dragged = true;
-        if (st.startedOnClip) return;
         const t = xToTime(e.clientX);
-        setDragSel({
+        const raw = {
             start: Math.min(st.startTime, t),
             end: Math.max(st.startTime, t),
-        });
+        };
+        setDragSel(clampToClip(raw.start, raw.end, st.clipSeg));
     };
 
     const onLanePointerUp = (e) => {
         const st = dragStateRef.current;
         dragStateRef.current = null;
         if (!st) return;
-        if (st.startedOnClip) {
-            // Simple clic sur un clip (pas de drag interact.js) → on positionne
-            // quand même le playhead. Si l'utilisateur a draggé, interact.js
-            // a déjà géré le move et on ne touche pas au playhead.
-            if (!st.dragged) {
-                onSeek?.(track.id, st.startTime);
-                onRegionChange?.(null);
-            }
-            return;
-        }
+
         if (!st.dragged) {
+            // Clic simple (body d'un clip ou fond de la lane) → playhead.
             onSeek?.(track.id, st.startTime);
             onRegionChange?.(null);
             return;
         }
+
         const t = xToTime(e.clientX);
-        setDragSel(null);
-        onRegionChange?.({
-            trackId: track.id,
+        const raw = {
             start: Math.min(st.startTime, t),
             end: Math.max(st.startTime, t),
+        };
+        const { start, end } = clampToClip(raw.start, raw.end, st.clipSeg);
+        setDragSel(null);
+        // Si le clamp a tout réduit (drag minuscule au bord du clip), on ne
+        // commit pas une région vide.
+        if (end <= start) {
+            onRegionChange?.(null);
+            return;
+        }
+        onRegionChange?.({
+            trackId: track.id,
+            start,
+            end,
         });
     };
 
@@ -183,19 +210,25 @@ export default function TrackView({
                             />
                         )}
                         {pxPerSec > 0 &&
-                            track.edl.map((seg) => (
-                                <Clip
-                                    key={seg.id}
-                                    segment={seg}
-                                    trackId={track.id}
-                                    trackBuffer={track.buffer}
-                                    pxPerSec={pxPerSec}
-                                    onMove={onClipMove}
-                                    onMoveAcrossTracks={onClipMoveAcrossTracks}
-                                    onClipTrim={onClipTrim}
-                                    bounds={clipBounds[seg.id]}
-                                />
-                            ))}
+                            track.edl.map((seg) => {
+                                const isClipSelected = !!clipSelection?.some(
+                                    (c) => c.trackId === track.id && c.segId === seg.id,
+                                );
+                                return (
+                                    <Clip
+                                        key={seg.id}
+                                        segment={seg}
+                                        trackId={track.id}
+                                        trackBuffer={track.buffer}
+                                        pxPerSec={pxPerSec}
+                                        isSelected={isClipSelected}
+                                        onMove={onClipMove}
+                                        onMoveAcrossTracks={onClipMoveAcrossTracks}
+                                        onClipTrim={onClipTrim}
+                                        onSelect={onClipSelect}
+                                    />
+                                );
+                            })}
                         {visibleSelection && (
                             <SelectionOverlay
                                 start={visibleSelection.start}

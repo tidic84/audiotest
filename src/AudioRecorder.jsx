@@ -23,7 +23,7 @@ import {
 import { useProjectPersistence } from "./hooks/useProjectPersistence";
 import { useRecorder } from "./hooks/useRecorder";
 import { formatTime } from "./Timeline";
-import { cutRange, extractRange, insertAt, splitAt, moveSegment, trimSegment, removeSegment, insertSegmentAt, virtualDuration } from "./lib/edl";
+import { cutRange, extractRange, insertAt, splitAt, trimSegment, removeSegment, insertSegmentAt, virtualDuration } from "./lib/edl";
 import SplitIcon from "./SplitIcon";
 
 export default function AudioRecorder({ audioUrl, obs, metadata }) {
@@ -34,6 +34,11 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
     // Region/selection
     const [selection, setSelection] = useState(null); // { trackId, time }
     const [regionSelection, setRegionSelection] = useState(null); // { trackId, start, end }
+    // Sélection de clip(s) : tableau d'entrées {trackId, segId}. Permet multi-sélection
+    // cross-tracks via Ctrl/Cmd. Le ref `clipSelectionAnchor` retient le pivot pour
+    // l'extension Shift-clic (range sur la même piste).
+    const [clipSelection, setClipSelection] = useState([]);
+    const clipSelectionAnchorRef = useRef(null);
     const [clipboard, setClipboard] = useState(null); // { buffer, segments }
     // undo/redo
     const [future, setFuture] = useState([]); // historique des actions apres le undo
@@ -176,7 +181,95 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
     // Clic sur une waveform ->> on retient piste + position, et on relance la lecture depuis ce point si on est en train de jouer.
     const handleSeek = (trackId, time) => {
         setSelection({ trackId, time });
+        // Un seek (clic playhead) efface la sélection de clip : seul un clic
+        // sur le header d'un clip doit la maintenir/étendre.
+        setClipSelection([]);
+        clipSelectionAnchorRef.current = null;
         if (isPlaying) startPlayback(trackId, time);
+    };
+
+    // Sélection clip(s) — appelée depuis le header d'un clip.
+    // mods : { ctrlKey, shiftKey } pour multi/range.
+    const handleClipSelect = (trackId, segId, mods = {}) => {
+        const { ctrlKey, shiftKey } = mods;
+        // Shift-clic : étend depuis l'anchor sur la même piste (range par vStart).
+        if (shiftKey && clipSelectionAnchorRef.current) {
+            const anchor = clipSelectionAnchorRef.current;
+            if (anchor.trackId === trackId) {
+                const track = tracks.find((t) => t.id === trackId);
+                if (track) {
+                    const a = track.edl.find((s) => s.id === anchor.segId);
+                    const b = track.edl.find((s) => s.id === segId);
+                    if (a && b) {
+                        const lo = Math.min(a.vStart, b.vStart);
+                        const hi = Math.max(a.vStart, b.vStart);
+                        const next = track.edl
+                            .filter((s) => s.vStart >= lo && s.vStart <= hi)
+                            .map((s) => ({ trackId, segId: s.id }));
+                        setClipSelection(next);
+                        // anchor inchangé
+                        setRegionSelection(null);
+                        return;
+                    }
+                }
+            }
+            // anchor sur une autre piste -> fallback : sélection simple
+        }
+        // Ctrl/Cmd : toggle ce clip dans la sélection.
+        if (ctrlKey) {
+            setClipSelection((prev) => {
+                const idx = prev.findIndex(
+                    (c) => c.trackId === trackId && c.segId === segId,
+                );
+                if (idx >= 0) {
+                    const next = prev.slice();
+                    next.splice(idx, 1);
+                    return next;
+                }
+                return [...prev, { trackId, segId }];
+            });
+            clipSelectionAnchorRef.current = { trackId, segId };
+            setRegionSelection(null);
+            return;
+        }
+        // Clic simple : remplace la sélection par ce seul clip.
+        setClipSelection([{ trackId, segId }]);
+        clipSelectionAnchorRef.current = { trackId, segId };
+        setRegionSelection(null);
+    };
+
+    const clearClipSelection = () => {
+        setClipSelection([]);
+        clipSelectionAnchorRef.current = null;
+    };
+
+    const deleteSelectedClips = () => {
+        if (clipSelection.length === 0) return;
+        // Groupe les segIds par trackId pour faire un seul update par piste.
+        const byTrack = new Map();
+        for (const { trackId, segId } of clipSelection) {
+            if (!byTrack.has(trackId)) byTrack.set(trackId, new Set());
+            byTrack.get(trackId).add(segId);
+        }
+        setTracksWithHistory((ts) =>
+            ts.map((t) => {
+                const ids = byTrack.get(t.id);
+                if (!ids) return t;
+                return { ...t, edl: t.edl.filter((s) => !ids.has(s.id)) };
+            }),
+        );
+        clearClipSelection();
+    };
+
+    const deleteRegionWithoutCopy = () => {
+        if (!regionSelection) return;
+        const { trackId, start, end } = regionSelection;
+        setTracksWithHistory((ts) =>
+            ts.map((t) =>
+                t.id === trackId ? { ...t, edl: cutRange(t.edl, start, end) } : t,
+            ),
+        );
+        setRegionSelection(null);
     };
 
     const setTracksWithHistory = (updater) => {
@@ -272,10 +365,27 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
                 e.preventDefault();
                 cutSelection();
             }
-        };  
+            // Suppr/Backspace : selon le contexte
+            else if (e.key === "Delete" || e.key === "Backspace") {
+                // Ignore quand on tape dans un input (rename, etc.)
+                const tag = e.target?.tagName;
+                if (tag === "INPUT" || tag === "TEXTAREA") return;
+                if (clipSelection.length > 0) {
+                    e.preventDefault();
+                    deleteSelectedClips();
+                } else if (regionSelection) {
+                    e.preventDefault();
+                    deleteRegionWithoutCopy();
+                }
+            }
+            // Echap : efface la sélection de clips
+            else if (e.key === "Escape") {
+                if (clipSelection.length > 0) clearClipSelection();
+            }
+        };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
-    }, [past, future, tracks, selection, regionSelection, clipboard]);
+    }, [past, future, tracks, selection, regionSelection, clipboard, clipSelection]);
 
     const undo = () => {
         if (past.length === 0) return;
@@ -309,11 +419,19 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
         );
     };
 
-    const moveClip = (trackId, segId, deltaSec) => {
+    // Drag intra-piste : punch-in à la nouvelle position absolue.
+    // On retire d'abord le segment source (pour qu'insertSegmentAt ne le
+    // coupe pas avec lui-même), puis on l'insère : cutRange efface ce qui
+    // chevauche [newVStart, newVStart + dur].
+    const moveClip = (trackId, segId, newVStart) => {
         setTracksWithHistory((ts) =>
-            ts.map((t) =>
-                t.id === trackId ? { ...t, edl: moveSegment(t.edl, segId, deltaSec) } : t
-            )
+            ts.map((t) => {
+                if (t.id !== trackId) return t;
+                const seg = t.edl.find((s) => s.id === segId);
+                if (!seg) return t;
+                const withoutSrc = removeSegment(t.edl, segId);
+                return { ...t, edl: insertSegmentAt(withoutSrc, seg, newVStart) };
+            }),
         );
     };
 
@@ -472,6 +590,9 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
                             onClipMove={moveClip}
                             onClipMoveAcrossTracks={moveClipAcrossTracks}
                             onClipTrim={trimClip}
+                            clipSelection={clipSelection}
+                            onClipSelect={handleClipSelect}
+                            onClearClipSelection={clearClipSelection}
                         />
                     );
                 })
