@@ -598,9 +598,12 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
             <Stack
                 direction="row"
                 spacing={1}
-                sx={{ border: "2px solid #777", alignItems: "center" }}
+                sx={{ border: "2px solid #777", alignItems: "center", justifyContent: "space-between" }}
             >
-                <Box sx={{ color: "#666", paddingLeft: 2, fontWeight: "bold", fontSize: 14 }}>
+
+                <Stack direction="row" spacing={1}>
+
+                <Box sx={{ color: "#666", paddingLeft: 2, fontWeight: "bold", fontSize: 14, alignSelf: "center" }}>
                     {formatTime(displayTime, true)}
                 </Box>
 
@@ -669,6 +672,17 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
                 >
                     <RedoIcon fontSize="small" />
                 </IconButton>
+                </Stack>
+                <Box
+                    sx={{
+                        marginLeft: "auto",
+                        paddingRight: 4,
+                        color: "#666",
+                        fontSize: 14,
+                    }}
+                >
+                    Ctrl to multiple select, ← and → to move selection
+                </Box>
             </Stack>
 
             <Box sx={{ border: "2px solid #777", borderTop: "0px solid #777" }}>
