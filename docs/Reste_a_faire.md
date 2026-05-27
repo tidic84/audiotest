@@ -24,11 +24,14 @@
 - Fix: quand on clique simple alrs qu'on a le curseur resize: ça doit mettre le playhead
 - Feat: Quand on drag verticalement: ça ne snap pas horizontalement.
 - Fix: Le Rezise gauche bug -> Resize des deux cotés donc ça "deplace" Le bug se déclanche que quand on resize a gauche un clip qui n'a pas plus d'audio
+- Fix: Quand on drag ça remet le curseur viseur au lieu de laiser le cursuer "main qui attrappe"
+- Feat: Quand on nudge ça ne doit pas rentrer dans un autre clip mais s'arreter a la limite.
+- Fix: Nom track trop large -> crop
 
 ### A demander
-- Fix: Clipboard inter chapitres
-- Fix: Nom track trop large -> crop ou wrap ?
+- Feat: Clipboard inter chapitres
 - Feat: Est ce qu'on fait une gestion de media ? Ou trop compliqué pour l'utilisateur
+- Feat: Faut il garder le clipboard en mémoire ? Garder le clipboard au refresh
 
 ### Attendre retour
 - Feat: bouton pour changer de maintrack + distinction de la maintrack ? marquer maintrack a droite ?

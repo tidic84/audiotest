@@ -203,7 +203,6 @@ export default function TrackView({
                             overflow: "visible",
                             touchAction: "none",
                             userSelect: "none",
-                            cursor: "crosshair",
                         }}
                     >
                         {pxPerSec > 0 && (
@@ -256,19 +255,17 @@ export default function TrackView({
 
                 <Stack
                     spacing={0}
-                    paddingRight={7}
+                    paddingRight={4}
                     paddingLeft={0}
                     alignItems="left"
                     margin={0}
                     top={0}
                 >
                     <Box
-                        minWidth={60}
-                        maxWidth={60}
                         display="flex"
                         justifyContent="left"
                         alignItems="center"
-                        sx={{ position: "relative", overflow: "visible", marginTop:1 }}
+                        sx={{ position: "relative", maxWidth: 110, minWidth: 110, marginTop:1 }}
                     >
                         {isRenaming ? (
                             <TextField
@@ -300,7 +297,19 @@ export default function TrackView({
                                 }}
                             />
                         ) : (
-                            track.name
+                            <Box
+                                component="span"
+                                sx={{
+                                    display: "block",
+                                    width: "100%",
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                    whiteSpace: "nowrap",
+                                }}
+                                title={track.name}
+                            >
+                                {track.name}
+                            </Box>
                         )}
                     </Box>
                     <Stack direction="row" margin={-0.7}>

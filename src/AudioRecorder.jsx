@@ -26,6 +26,7 @@ import { formatTime } from "./Timeline";
 import { cutRange, extractRange, insertAt, splitAt, trimSegment, removeSegment, insertSegmentAt, virtualDuration } from "./lib/edl";
 import { pickTickInterval } from "./lib/snap";
 import SplitIcon from "./SplitIcon";
+// import GestureIcon from "./GestureIcon";
 
 export default function AudioRecorder({ audioUrl, obs, metadata }) {
     const audioCtxRef = useRef(null);
@@ -383,7 +384,6 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
             }
             // Cut shortcut
             else if (isCmd && e.key.toLowerCase() === "x") {
-                console.log("Cut shortcut");
                 e.preventDefault();
                 cutSelection();
             }
@@ -404,10 +404,70 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
             else if (e.key === "Escape") {
                 if (clipSelection.length > 0) clearClipSelection();
             }
+            // Espace : Play / Pause
+            else if (e.key === " ") {
+                console.log("isPlaying", isPlaying);
+                e.preventDefault();
+                if (isPlaying) stop();
+                else play();
+            }
+            // S : Split sur le Playherd
+            else if (e.key === "s") {
+                e.preventDefault();
+                splitAtPlayhead();
+            }
+            else if (isCmd &&e.key === "a") {
+                e.preventDefault();
+                selectAllClips();
+            }
+            else if (e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+                e.preventDefault();
+                nudgeSelectedClips(
+                    e.key === "ArrowLeft" ? -snapStep / 10 : snapStep / 10,
+                    !e.repeat,
+                );
+            }
+            else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+                e.preventDefault();
+                nudgeSelectedClips(
+                    e.key === "ArrowLeft" ? -snapStep : snapStep,
+                    !e.repeat,
+                );
+            }
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
-    }, [past, future, tracks, selection, regionSelection, clipboard, clipSelection]);
+    }, [past, future, tracks, selection, regionSelection, clipboard, clipSelection, isPlaying, playerHeadTime]);
+
+    // Affiche le GestureIcon à côté du curseur tant que Ctrl/Cmd est maintenu.
+    const [ctrlHeld, setCtrlHeld] = useState(false);
+    const [cursorPos, setCursorPos] = useState({ x: 0, y: 0 });
+
+    useEffect(() => {
+        const onDown = (e) => {
+            if (e.key === "Control" || e.key === "Meta") setCtrlHeld(true);
+        };
+        const onUp = (e) => {
+            if (e.key === "Control" || e.key === "Meta") setCtrlHeld(false);
+        };
+        // Au cas où la fenêtre perd le focus pendant qu'on maintient la touche.
+        const onBlur = () => setCtrlHeld(false);
+        window.addEventListener("keydown", onDown);
+        window.addEventListener("keyup", onUp);
+        window.addEventListener("blur", onBlur);
+        return () => {
+            window.removeEventListener("keydown", onDown);
+            window.removeEventListener("keyup", onUp);
+            window.removeEventListener("blur", onBlur);
+        };
+    }, []);
+
+    useEffect(() => {
+        if (!ctrlHeld) return;
+        const onMove = (e) => setCursorPos({ x: e.clientX, y: e.clientY });
+        window.addEventListener("mousemove", onMove);
+        return () => window.removeEventListener("mousemove", onMove);
+    }, [ctrlHeld]);
 
     const undo = () => {
         if (past.length === 0) return;
@@ -439,6 +499,43 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
                 t.id === trackId ? { ...t, edl: splitAt(t.edl, time) } : t
             )
         );
+    };
+
+    const selectAllClips = () => {
+        const all = [];
+        for (const t of tracks) for (const s of t.edl) all.push({ trackId: t.id, segId: s.id });
+        setClipSelection(all);
+        clipSelectionAnchorRef.current = all[0] ?? null;
+        setRegionSelection(null);
+    };
+
+    // Nudge des clips sélectionnés.
+    // `pushHistory = true` au premier keydown → on push l'état dans `past`
+    // (= une entrée d'undo pour toute la session de touche maintenue).
+    // `pushHistory = false` sur les repeats → on met juste à jour `tracks`
+    // sans empiler de nouvelle entrée. L'undo ramène à l'état pré-session.
+    const nudgeSelectedClips = (deltaSec, pushHistory = true) => {
+        if (clipSelection.length === 0) return;
+        const byTrack = new Map();
+        for (const { trackId, segId } of clipSelection) {
+            if (!byTrack.has(trackId)) byTrack.set(trackId, new Set());
+            byTrack.get(trackId).add(segId);
+        }
+        const updater = (ts) => ts.map((t) => {
+            const ids = byTrack.get(t.id);
+            if (!ids) return t;
+            return {
+                ...t,
+                edl: t.edl.map((s) =>
+                    ids.has(s.id) ? { ...s, vStart: Math.max(0, s.vStart + deltaSec) } : s,
+                ),
+            };
+        });
+        if (pushHistory) {
+            setTracksWithHistory(updater);
+        } else {
+            setTracks(updater);
+        }
     };
 
     // Drag intra-piste : punch-in à la nouvelle position absolue.
@@ -492,6 +589,9 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
             )
         );
     };
+    
+    const platform = navigator.userAgentData?.platform;
+    const ctrlKeyTitle = platform.includes("Mac") ? "Cmd" : "Ctrl";
 
     return (
         <Box sx={{ width: "100%", p: 2 }}>
@@ -500,7 +600,7 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
                 spacing={1}
                 sx={{ border: "2px solid #777", alignItems: "center" }}
             >
-                <Box sx={{ fontSize: 12, color: "#666", paddingLeft: 2 }}>
+                <Box sx={{ color: "#666", paddingLeft: 2, fontWeight: "bold", fontSize: 14 }}>
                     {formatTime(displayTime, true)}
                 </Box>
 
@@ -508,6 +608,7 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
                     size="small"
                     onClick={isPlaying ? stop : play}
                     disabled={tracks.length === 0}
+                    title={isPlaying ? "Stop (space)" : "Play (space)"}
                 >
                     {isPlaying ? <StopIcon /> : <PlayArrowIcon />}
                 </IconButton>
@@ -516,6 +617,7 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
                     onClick={isRecording ? stopRecording : startRecording}
                     color={isRecording ? "error" : "default"}
                     disabled={!paths}
+                    title={isRecording ? "Stop recording (R)" : "Record (R)"}
                 >
                     {isRecording ? <StopIcon /> : <MicIcon />}
                 </IconButton>
@@ -523,7 +625,7 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
                     size="small"
                     onClick={copySelection}
                     disabled={!regionSelection}
-                    title="Copy"
+                    title={`Copy ( ${ctrlKeyTitle} + C)`}
                 >
                     <ContentCopyIcon fontSize="small" />
                 </IconButton>
@@ -531,7 +633,7 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
                     size="small"
                     onClick={pasteAtCursor}
                     disabled={!clipboard || !selection}
-                    title="Paste"
+                    title="Paste ( Ctrl + V)"
                 >
                     <ContentPasteIcon fontSize="small" />
                 </IconButton>
@@ -539,7 +641,7 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
                     size="small"
                     onClick={cutSelection}
                     disabled={!regionSelection}
-                    title="Cut"
+                    title="Cut ( Ctrl + X)"
                 >
                     <ContentCutIcon fontSize="small" />
                 </IconButton>
@@ -547,7 +649,7 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
                     size="small"
                     onClick={splitAtPlayhead}
                     disabled={!selection && !isPlaying}
-                    title="Split at cursor"
+                    title="Split at cursor (S)"
                 >
                     <SplitIcon fontSize="small" />
                 </IconButton>
@@ -555,7 +657,7 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
                     size="small"
                     onClick={undo}
                     disabled={past.length === 0}
-                    title="Undo"
+                    title="Undo ( Ctrl + Z)"
                 >
                     <UndoIcon fontSize="small" />
                 </IconButton>
@@ -563,7 +665,7 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
                     size="small"
                     onClick={redo}
                     disabled={future.length === 0}
-                    title="Redo"
+                    title="Redo ( Ctrl + Y)"
                 >
                     <RedoIcon fontSize="small" />
                 </IconButton>
@@ -578,8 +680,8 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
                         <TimelineAxis projectDuration={projectDuration} pxPerSec={pxPerSec} isTopAxis={true}/>
                     </Box>
                     <Divider orientation="vertical" flexItem sx={{ alignSelf: "stretch", borderColor: "transparent" }} />
-                    <Stack spacing={0} paddingRight={7} paddingLeft={0} margin={0}>
-                        <Box minWidth={60} maxWidth={60} />
+                    <Stack spacing={0} paddingRight={4} paddingLeft={0} margin={0}>
+                        <Box minWidth={110} maxWidth={110} />
                     </Stack>
                 </Stack>
 
@@ -635,6 +737,21 @@ export default function AudioRecorder({ audioUrl, obs, metadata }) {
                     trackNumber={tracks.length + 1}
                 />
             )}
+
+            {/* {ctrlHeld && (
+                <Box
+                    sx={{
+                        position: "fixed",
+                        top: cursorPos.y + 12,
+                        left: cursorPos.x + 12,
+                        pointerEvents: "none",
+                        zIndex: 9999,
+                        color: "#555",
+                    }}
+                >
+                    <GestureIcon />
+                </Box>
+            )} */}
         </Box>
     );
 }
