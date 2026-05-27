@@ -35,6 +35,9 @@ export default function TrackView({
     clipSelection,
     onClipSelect,
     onClearClipSelection,
+    getSnapCandidates,
+    snapEnabled,
+    snapStep,
 }) {
     const laneRef = useRef(null);
     const [laneWidth, setLaneWidth] = useState(0);
@@ -180,8 +183,8 @@ export default function TrackView({
     return (
         <Box
             sx={{
-                border: "1px solid #777",
-                borderTop: "0px solid #fff",
+                // borderBottom: "1px solid #777",
+                borderTop: "1px solid #777",
             }}
         >
             <Stack direction="row" alignItems="stretch" spacing={1}>
@@ -226,6 +229,9 @@ export default function TrackView({
                                         onMoveAcrossTracks={onClipMoveAcrossTracks}
                                         onClipTrim={onClipTrim}
                                         onSelect={onClipSelect}
+                                        getSnapCandidates={getSnapCandidates}
+                                        snapEnabled={snapEnabled}
+                                        snapStep={snapStep}
                                     />
                                 );
                             })}
@@ -245,7 +251,7 @@ export default function TrackView({
                 <Divider
                     orientation="vertical"
                     flexItem
-                    sx={{ alignSelf: "stretch" }}
+                    sx={{ alignSelf: "stretch", borderColor: "transparent"}}
                 />
 
                 <Stack
